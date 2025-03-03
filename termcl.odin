@@ -32,7 +32,8 @@ destroy_screen :: proc(screen: ^Screen) {
 }
 
 blit_screen :: proc(screen: ^Screen) {
-	fmt.println(strings.to_string(screen.seq_builder))
+	fmt.print(strings.to_string(screen.seq_builder))
+	strings.builder_reset(&screen.seq_builder)
 }
 
 Direction :: enum {
@@ -76,6 +77,12 @@ Text_Style :: enum {
 	Crossed,
 	Inverted,
 	Dim,
+}
+
+hide_cursor :: proc(hide: bool) {
+	SHOW_CURSOR :: ansi.CSI + "?25h"
+	HIDE_CURSOR :: ansi.CSI + "?25l"
+	fmt.print(HIDE_CURSOR if hide else SHOW_CURSOR)
 }
 
 set_text_style :: proc(screen: ^Screen, styles: bit_set[Text_Style]) {
