@@ -3,16 +3,32 @@ package termcl
 import "base:runtime"
 import "core:encoding/ansi"
 import "core:fmt"
+import "core:os"
 import "core:strings"
+import "core:sys/posix"
 
 Screen :: struct {
-	allocator:   runtime.Allocator,
-	seq_builder: strings.Builder,
+	allocator:          runtime.Allocator,
+	seq_builder:        strings.Builder,
+	original_termstate: posix.termios,
 }
 
 init_screen :: proc(allocator := context.temp_allocator) -> Screen {
 	context.allocator = allocator
-	return Screen{allocator = allocator, seq_builder = strings.builder_make()}
+
+	termstate: posix.termios
+	posix.tcgetattr(posix.STDIN_FILENO, &termstate)
+
+	return Screen {
+		allocator = allocator,
+		seq_builder = strings.builder_make(),
+		original_termstate = termstate,
+	}
+}
+
+destroy_screen :: proc(screen: ^Screen) {
+	free_all(screen.allocator)
+	posix.tcsetattr(posix.STDIN_FILENO, .TCSANOW, &screen.original_termstate)
 }
 
 blit_screen :: proc(screen: ^Screen) {
@@ -153,5 +169,51 @@ clear_screen :: proc(screen: ^Screen) {
 
 write :: proc(screen: ^Screen, str: string) {
 	strings.write_string(&screen.seq_builder, str)
+}
+
+Term_Mode :: enum {
+	// Raw mode, prevents the terminal from preprocessing inputs
+	Raw,
+	// Restores the mode the terminal was in before program started
+	Restored,
+	// A sort of "soft" raw mode that allows interrupts to still work
+	Cbreak,
+}
+
+set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
+	raw: posix.termios
+	if posix.tcgetattr(posix.STDIN_FILENO, &raw) != .OK {
+		fmt.eprintln(#procedure, "failed:", "tcgetattr returned an error")
+		os.exit(1)
+	}
+
+	switch mode {
+	case .Raw:
+		raw.c_lflag -= {.ECHO, .ICANON, .ISIG, .IEXTEN}
+		raw.c_iflag -= {.ICRNL, .IXON}
+		raw.c_oflag -= {.OPOST}
+
+		// probably meaningless on modern terminals but apparently it's good practice
+		raw.c_iflag -= {.BRKINT, .INPCK, .ISTRIP}
+		raw.c_cflag |= {.CS8}
+
+	case .Cbreak:
+		raw.c_lflag -= {.ECHO, .ICANON}
+
+	case .Restored:
+		raw = screen.original_termstate
+	}
+
+	if mode == .Raw || mode == .Cbreak {
+		// timeout for reads
+		raw.c_cc[.VMIN] = 0
+		raw.c_cc[.VTIME] = 1 // 100 ms
+
+	}
+
+	if posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw) != .OK {
+		fmt.eprintln(#procedure, "failed:", "tcsetattr returned an error")
+		os.exit(1)
+	}
 }
 
