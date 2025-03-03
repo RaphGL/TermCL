@@ -1,7 +1,22 @@
 package termcl
 
+import "base:runtime"
 import "core:fmt"
 import "core:strings"
+
+Screen :: struct {
+	allocator: runtime.Allocator,
+	code_seq:  string,
+	failed:    bool,
+}
+
+init_screen :: proc(allocator := context.temp_allocator) -> Screen {
+	return Screen{allocator = allocator, code_seq = ""}
+}
+
+blit_screen :: proc(screen: ^Screen) {
+	fmt.println(screen.code_seq)
+}
 
 // control sequence introducer
 CSI :: "\x1b["
@@ -14,7 +29,7 @@ Direction :: enum {
 }
 
 // changes the cursor's position relative to the current position
-cursor_step :: proc(dir: bit_set[Direction], steps: uint) -> (seq: string, success: bool) {
+step_cursor :: proc(screen: ^Screen, dir: bit_set[Direction], steps: uint) {
 	MOVE_CURSOR_UP :: CSI + "%dA"
 	MOVE_CURSOR_DOWN :: CSI + "%dB"
 	MOVE_CURSOR_RIGHT :: CSI + "%dC"
@@ -22,24 +37,31 @@ cursor_step :: proc(dir: bit_set[Direction], steps: uint) -> (seq: string, succe
 
 	escape_seq, err := strings.join(
 		[]string {
+			screen.code_seq,
 			fmt.tprintf(MOVE_CURSOR_UP, steps) if .Up in dir else "",
 			fmt.tprintf(MOVE_CURSOR_DOWN, steps) if .Down in dir else "",
 			fmt.tprintf(MOVE_CURSOR_LEFT, steps) if .Left in dir else "",
 			fmt.tprintf(MOVE_CURSOR_RIGHT, steps) if .Right in dir else "",
 		},
 		"",
-		allocator = context.temp_allocator,
+		allocator = screen.allocator,
 	)
+	if err != .None do screen.failed = true
 
-	return escape_seq, err == .None
+	screen.code_seq = escape_seq
 }
 
 // changes the cursor's absolute position
-cursor_move :: proc(y, x: uint) -> (seq: string) {
+move_cursor :: proc(screen: ^Screen, y, x: uint) {
 	CURSOR_POSITION :: CSI + "%d;%dH"
 
-	escape_seq := fmt.tprintf(CURSOR_POSITION, y, x)
-	return escape_seq
+	escape_seq, err := strings.join(
+		[]string{screen.code_seq, fmt.tprintf(CURSOR_POSITION, y, x)},
+		"",
+		allocator = screen.allocator,
+	)
+	if err != .None do screen.failed = true
+	screen.code_seq = escape_seq
 }
 
 Text_Style :: enum {
@@ -51,7 +73,7 @@ Text_Style :: enum {
 	Dim,
 }
 
-set_text_style :: proc(styles: bit_set[Text_Style]) -> (seq: string, success: bool) {
+set_text_style :: proc(screen: ^Screen, styles: bit_set[Text_Style]) {
 	SGR_BOLD :: CSI + "1m"
 	SGR_DIM :: CSI + "2m"
 	SGR_ITALIC :: CSI + "3m"
@@ -61,6 +83,7 @@ set_text_style :: proc(styles: bit_set[Text_Style]) -> (seq: string, success: bo
 
 	escape_seq, err := strings.join(
 		[]string {
+			screen.code_seq,
 			SGR_BOLD if .Bold in styles else "",
 			SGR_DIM if .Dim in styles else "",
 			SGR_ITALIC if .Italic in styles else "",
@@ -69,10 +92,10 @@ set_text_style :: proc(styles: bit_set[Text_Style]) -> (seq: string, success: bo
 			SGR_CROSSED if .Crossed in styles else "",
 		},
 		"",
-		allocator = context.temp_allocator,
+		allocator = screen.allocator,
 	)
 
-	return escape_seq, err == .None
+	screen.code_seq = escape_seq
 }
 
 Color_8 :: enum {
@@ -87,7 +110,7 @@ Color_8 :: enum {
 }
 
 // sets colors based from the original 8 color palette
-set_color_style_8 :: proc(fg: Color_8, bg: Maybe(Color_8)) -> (seq: string, success: bool) {
+set_color_style_8 :: proc(screen: ^Screen, fg: Color_8, bg: Maybe(Color_8)) {
 	SGR_COLOR :: CSI + "%dm"
 
 	get_color_code :: proc(c: Color_8, is_bg: bool) -> uint {
@@ -115,62 +138,66 @@ set_color_style_8 :: proc(fg: Color_8, bg: Maybe(Color_8)) -> (seq: string, succ
 		return code
 	}
 
-	fg_seq := fmt.tprintf(SGR_COLOR, get_color_code(fg, false))
-	if bg == nil do return fg_seq, true
-
-
-	full_color_seq, err := strings.join(
-		[]string{fg_seq, fmt.tprintf(SGR_COLOR, get_color_code(bg.?, true))},
+	context.allocator = screen.allocator
+	final_seq := strings.join(
+		[]string {
+			screen.code_seq,
+			fmt.tprintf(SGR_COLOR, get_color_code(fg, false)),
+			fmt.tprintf(SGR_COLOR, get_color_code(bg.?, true) if bg != nil else 49), // 49 == default background,
+		},
 		"",
-		allocator = context.temp_allocator,
 	)
 
-	return full_color_seq, err == .None
+	screen.code_seq = final_seq
 }
 
 RGB_Color :: struct {
 	r, g, b: u8,
 }
 
-set_color_style_rgb :: proc(fg: RGB_Color, bg: Maybe(RGB_Color)) -> (seq: string, success: bool) {
+set_color_style_rgb :: proc(screen: ^Screen, fg: RGB_Color, bg: Maybe(RGB_Color)) {
 	RGB_FG_COLOR :: CSI + "38;2;%d;%d;%dm"
 	RGB_BG_COLOR :: CSI + "48;2;%d;%d;%dm"
+	context.allocator = screen.allocator
 
-	fg_seq := fmt.tprintf(RGB_FG_COLOR, fg.r, fg.g, fg.b)
-	if bg == nil do return fg_seq, true
-
+	fg_seq, err := strings.join(
+		[]string{screen.code_seq, fmt.tprintf(RGB_FG_COLOR, fg.r, fg.g, fg.b)},
+		"",
+	)
+	if err != .None do screen.failed = true
 	bg := bg.?
-	final_seq, err := strings.join(
+	final_seq: string
+	final_seq, err = strings.join(
 		[]string{fg_seq, fmt.tprintf(RGB_BG_COLOR, bg.r, bg.g, bg.b)},
 		"",
-		allocator = context.temp_allocator,
 	)
+	if err != .None do screen.failed = true
 
-	return final_seq, err == .None
+	screen.code_seq = final_seq
 }
 
-set_color_style :: proc {
-	set_color_style_rgb,
-	set_color_style_8,
-}
-
-reset_styles :: proc() -> (seq: string) {
-	return CSI + "0m"
-}
-
-clear_screen :: proc() -> (seq: string) {
-	return CSI + "2J"
-}
-
-main :: proc() {
-	seq0 := clear_screen()
-	color, _ := set_color_style(
-		RGB_Color{r = 0xFF, g = 0xFF, b = 0xF8},
-		RGB_Color{r = 0xFF, b = 0xAB, g = 0x08},
+reset_styles :: proc(screen: ^Screen) {
+	seq, err := strings.join(
+		[]string{screen.code_seq, CSI + "0m"},
+		"",
+		allocator = screen.allocator,
 	)
-	seq := cursor_move(30, 23)
-	seq1, _ := set_text_style({.Bold, .Italic, .Crossed})
-	seq2 := reset_styles()
-	fmt.println(seq0, seq, seq1, color, "hello world", seq2, "end of styles")
+	if err != .None do screen.failed = true
+	screen.code_seq = seq
+}
+
+clear_screen :: proc(screen: ^Screen) {
+	seq, err := strings.join(
+		[]string{screen.code_seq, CSI + "2J"},
+		"",
+		allocator = screen.allocator,
+	)
+	if err != .None do screen.failed = true
+	screen.code_seq = seq
+}
+
+write :: proc(screen: ^Screen, str: string) {
+	seq, err := strings.join([]string{screen.code_seq, str}, "", allocator = screen.allocator)
+	screen.code_seq = seq
 }
 
