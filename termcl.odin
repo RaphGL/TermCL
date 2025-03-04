@@ -170,8 +170,39 @@ reset_styles :: proc(screen: ^Screen) {
 	strings.write_string(&screen.seq_builder, ansi.CSI + "0m")
 }
 
-clear_screen :: proc(screen: ^Screen) {
-	strings.write_string(&screen.seq_builder, ansi.CSI + "2J")
+Clear_Mode :: enum {
+	Before_Cursor,
+	After_Cursor,
+	Everything,
+}
+
+// clears screen starting from current line.
+// can clear everything or before or after the current line
+clear_screen :: proc(screen: ^Screen, mode: Clear_Mode) {
+	switch mode {
+	case .After_Cursor:
+		strings.write_string(&screen.seq_builder, ansi.CSI + "0J")
+	case .Before_Cursor:
+		strings.write_string(&screen.seq_builder, ansi.CSI + "1J")
+	case .Everything:
+		strings.write_string(&screen.seq_builder, ansi.CSI + "2J")
+	}
+}
+
+// clears current line before or after cursor or entirely
+clear_line :: proc(screen: ^Screen, mode: Clear_Mode) {
+	switch mode {
+	case .After_Cursor:
+		strings.write_string(&screen.seq_builder, ansi.CSI + "0K")
+	case .Before_Cursor:
+		strings.write_string(&screen.seq_builder, ansi.CSI + "1K")
+	case .Everything:
+		strings.write_string(&screen.seq_builder, ansi.CSI + "2K")
+	}
+}
+
+ring_bell :: proc() {
+	fmt.print("\a")
 }
 
 write :: proc(screen: ^Screen, str: string) {
