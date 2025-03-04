@@ -11,6 +11,7 @@ Screen :: struct {
 	allocator:          runtime.Allocator,
 	seq_builder:        strings.Builder,
 	original_termstate: posix.termios,
+	input_buf:          [512]byte,
 }
 
 init_screen :: proc(allocator := context.temp_allocator) -> Screen {
@@ -30,6 +31,7 @@ destroy_screen :: proc(screen: ^Screen) {
 	free_all(screen.allocator)
 	posix.tcsetattr(posix.STDIN_FILENO, .TCSANOW, &screen.original_termstate)
 	strings.builder_destroy(&screen.seq_builder)
+	hide_cursor(false)
 }
 
 blit_screen :: proc(screen: ^Screen) {
@@ -215,24 +217,123 @@ write_rune :: proc(screen: ^Screen, r: rune) {
 	strings.write_rune(&screen.seq_builder, r)
 }
 
-write_byte :: proc(screen: ^Screen, b: byte) {
-	strings.write_byte(&screen.seq_builder, b)
-}
-
-write_bytes :: proc(screen: ^Screen, bytes: []byte) {
-	strings.write_bytes(&screen.seq_builder, bytes)
-}
-
 write :: proc {
 	write_string,
 	write_rune,
-	write_byte,
-	write_bytes,
 }
 
 writef :: proc(screen: ^Screen, format: string, args: ..any) {
 	fmt.sbprintf(&screen.seq_builder, format, ..args)
 }
+
+Input :: distinct []byte
+
+read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
+	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
+	if err != nil {
+		fmt.eprintln("failing to get user input")
+		os.exit(1)
+	}
+
+	return Input(screen.input_buf[:bytes_read]), bytes_read > 0
+}
+
+ctrl_key :: proc(input: Input) -> byte {
+	return input[0] & 0b00011111
+}
+
+Key :: enum {
+	None,
+	Arrow_Left,
+	Arrow_Right,
+	Arrow_Up,
+	Arrow_Down,
+	Page_Up,
+	Page_Down,
+	Home,
+	End,
+	Delete,
+}
+
+Mod :: enum {
+	None,
+	Alt,
+	Ctrl,
+}
+
+Input_Seq :: struct {
+	mod: Mod,
+	key: Key,
+}
+
+// TODO: interpret ctrl + ch using a lookup array or something
+interpret_input :: proc(input: Input) -> Input_Seq {
+	seq: Input_Seq
+
+	if len(input) == 0 {
+		return {}
+	}
+
+	// TODO: input ctrl + ch and regular ch here
+	if len(input) == 1 {
+	}
+
+	if input[0] == '\x1b' && input[1] == '[' {
+		if len(input) == 3 {
+			switch input[2] {
+			case 'H':
+				seq.key = .Home
+				return seq
+			case 'F':
+				seq.key = .End
+				return seq
+			}
+		}
+
+		if len(input) == 4 && input[2] == 'O' {
+			switch input[3] {
+			case 'H':
+				seq.key = .Home
+				return seq
+			case 'F':
+				seq.key = .End
+				return seq
+			}
+		}
+
+		if len(input) < 3 do return {}
+		switch input[2] {
+		case 'A':
+			seq.key = .Arrow_Up
+		case 'B':
+			seq.key = .Arrow_Down
+		case 'C':
+			seq.key = .Arrow_Right
+		case 'D':
+			seq.key = .Arrow_Left
+		}
+
+		if len(input) >= 4 && input[3] == '~' {
+			switch input[2] {
+			case '1', '7':
+				seq.key = .Home
+			case '3':
+				seq.key = .Delete
+			case '4', '8':
+				seq.key = .End
+			case '5':
+				seq.key = .Page_Up
+			case '6':
+				seq.key = .Page_Down
+			}
+		}
+
+		return seq
+	}
+
+	return {}
+}
+
 
 Term_Mode :: enum {
 	// Raw mode, prevents the terminal from preprocessing inputs
@@ -277,6 +378,25 @@ set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	if posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw) != .OK {
 		fmt.eprintln(#procedure, "failed:", "tcsetattr returned an error")
 		os.exit(1)
+	}
+}
+
+main :: proc() {
+	s := init_screen()
+	set_term_mode(&s, .Cbreak)
+	fmt.print("type somethign: ")
+
+	ctrl_key :: #force_inline proc(key: byte) -> byte {
+		return key & 0b00011111
+	}
+	for {
+		input, has_input := read(&s)
+
+		if has_input {
+			keys := interpret_input(input)
+			fmt.println(keys)
+			if input[0] == 'q' do break
+		}
 	}
 }
 
