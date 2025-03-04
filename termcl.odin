@@ -238,10 +238,6 @@ read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 	return Input(screen.input_buf[:bytes_read]), bytes_read > 0
 }
 
-ctrl_key :: proc(input: Input) -> byte {
-	return input[0] & 0b00011111
-}
-
 Key :: enum {
 	None,
 	Arrow_Left,
@@ -252,7 +248,20 @@ Key :: enum {
 	Page_Down,
 	Home,
 	End,
+	Insert,
 	Delete,
+	F1,
+	F2,
+	F3,
+	F4,
+	F5,
+	F6,
+	F7,
+	F8,
+	F9,
+	F10,
+	F11,
+	F12,
 }
 
 Mod :: enum {
@@ -276,6 +285,22 @@ interpret_input :: proc(input: Input) -> Input_Seq {
 
 	// TODO: input ctrl + ch and regular ch here
 	if len(input) == 1 {
+		return {}
+	}
+
+	if len(input) == 3 && input[0] == '\x1b' && input[1] == 'O' {
+		switch input[2] {
+		case 'P':
+			seq.key = .F1
+		case 'Q':
+			seq.key = .F2
+		case 'R':
+			seq.key = .F3
+		case 'S':
+			seq.key = .F4
+
+		}
+		return seq
 	}
 
 	if input[0] == '\x1b' && input[1] == '[' {
@@ -283,40 +308,49 @@ interpret_input :: proc(input: Input) -> Input_Seq {
 			switch input[2] {
 			case 'H':
 				seq.key = .Home
-				return seq
 			case 'F':
 				seq.key = .End
-				return seq
+			case 'A':
+				seq.key = .Arrow_Up
+			case 'B':
+				seq.key = .Arrow_Down
+			case 'C':
+				seq.key = .Arrow_Right
+			case 'D':
+				seq.key = .Arrow_Left
 			}
 		}
 
-		if len(input) == 4 && input[2] == 'O' {
-			switch input[3] {
-			case 'H':
-				seq.key = .Home
-				return seq
-			case 'F':
-				seq.key = .End
-				return seq
+
+		if len(input) == 4 {
+			switch input[2] {
+			case 'O':
+				switch input[3] {
+				case 'H':
+					seq.key = .Home
+				case 'F':
+					seq.key = .End
+				}
+			case '1':
+				switch input[3] {
+				case 'P':
+					seq.key = .F1
+				case 'Q':
+					seq.key = .F2
+				case 'R':
+					seq.key = .F3
+				case 'S':
+					seq.key = .F4
+				}
 			}
 		}
 
-		if len(input) < 3 do return {}
-		switch input[2] {
-		case 'A':
-			seq.key = .Arrow_Up
-		case 'B':
-			seq.key = .Arrow_Down
-		case 'C':
-			seq.key = .Arrow_Right
-		case 'D':
-			seq.key = .Arrow_Left
-		}
-
-		if len(input) >= 4 && input[3] == '~' {
+		if len(input) == 4 && input[3] == '~' {
 			switch input[2] {
 			case '1', '7':
 				seq.key = .Home
+			case '2':
+				seq.key = .Insert
 			case '3':
 				seq.key = .Delete
 			case '4', '8':
@@ -325,6 +359,42 @@ interpret_input :: proc(input: Input) -> Input_Seq {
 				seq.key = .Page_Up
 			case '6':
 				seq.key = .Page_Down
+			}
+		}
+
+		if len(input) == 5 && input[4] == '~' {
+			switch input[2] {
+			case '1':
+				switch input[3] {
+				case '1':
+					seq.key = .F1
+				case '2':
+					seq.key = .F2
+				case '3':
+					seq.key = .F3
+				case '4':
+					seq.key = .F4
+				case '5':
+					seq.key = .F5
+				case '7':
+					seq.key = .F6
+				case '8':
+					seq.key = .F7
+				case '9':
+					seq.key = .F8
+				}
+
+			case '2':
+				switch input[3] {
+				case '0':
+					seq.key = .F9
+				case '1':
+					seq.key = .F10
+				case '3':
+					seq.key = .F11
+				case '4':
+					seq.key = .F12
+				}
 			}
 		}
 
@@ -378,25 +448,6 @@ set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	if posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw) != .OK {
 		fmt.eprintln(#procedure, "failed:", "tcsetattr returned an error")
 		os.exit(1)
-	}
-}
-
-main :: proc() {
-	s := init_screen()
-	set_term_mode(&s, .Cbreak)
-	fmt.print("type somethign: ")
-
-	ctrl_key :: #force_inline proc(key: byte) -> byte {
-		return key & 0b00011111
-	}
-	for {
-		input, has_input := read(&s)
-
-		if has_input {
-			keys := interpret_input(input)
-			fmt.println(keys)
-			if input[0] == 'q' do break
-		}
 	}
 }
 
