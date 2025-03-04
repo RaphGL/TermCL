@@ -1,8 +1,7 @@
 <!-- PROJECT LOGO -->
 <br />
 <p align="center">
-  <h1>TermCL</h1>
-
+  <h1 align="center">TermCL</h1>
   <h3 align="center">Terminal control and ANSI escape code library for Odin</h3>
   <p align="center">
     <br />

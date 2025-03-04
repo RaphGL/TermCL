@@ -29,6 +29,7 @@ init_screen :: proc(allocator := context.temp_allocator) -> Screen {
 destroy_screen :: proc(screen: ^Screen) {
 	free_all(screen.allocator)
 	posix.tcsetattr(posix.STDIN_FILENO, .TCSANOW, &screen.original_termstate)
+	strings.builder_destroy(&screen.seq_builder)
 }
 
 blit_screen :: proc(screen: ^Screen) {
@@ -67,7 +68,8 @@ step_cursor :: proc(screen: ^Screen, dir: bit_set[Direction], steps: uint) {
 // changes the cursor's absolute position
 move_cursor :: proc(screen: ^Screen, y, x: uint) {
 	CURSOR_POSITION :: ansi.CSI + "%d;%dH"
-	strings.write_string(&screen.seq_builder, fmt.tprintf(CURSOR_POSITION, y, x))
+	// x and y are shifted by one position so that programmers can keep using 0 based indexing
+	strings.write_string(&screen.seq_builder, fmt.tprintf(CURSOR_POSITION, y + 1, x + 1))
 }
 
 Text_Style :: enum {
@@ -205,8 +207,31 @@ ring_bell :: proc() {
 	fmt.print("\a")
 }
 
-write :: proc(screen: ^Screen, str: string) {
+write_string :: proc(screen: ^Screen, str: string) {
 	strings.write_string(&screen.seq_builder, str)
+}
+
+write_rune :: proc(screen: ^Screen, r: rune) {
+	strings.write_rune(&screen.seq_builder, r)
+}
+
+write_byte :: proc(screen: ^Screen, b: byte) {
+	strings.write_byte(&screen.seq_builder, b)
+}
+
+write_bytes :: proc(screen: ^Screen, bytes: []byte) {
+	strings.write_bytes(&screen.seq_builder, bytes)
+}
+
+write :: proc {
+	write_string,
+	write_rune,
+	write_byte,
+	write_bytes,
+}
+
+writef :: proc(screen: ^Screen, format: string, args: ..any) {
+	fmt.sbprintf(&screen.seq_builder, format, ..args)
 }
 
 Term_Mode :: enum {
