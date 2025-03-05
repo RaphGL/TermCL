@@ -253,6 +253,12 @@ main :: proc() {
 
 		input, has_input := t.read(&s)
 		keys := t.interpret_input(input)
+
+		if keys.key == .Escape {
+			break
+		}
+
+
 		snake_handle_input(&s, &game, keys)
 
 		for {
