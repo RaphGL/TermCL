@@ -1,6 +1,7 @@
 package main
 
 import t "../.."
+import "core:fmt"
 import "core:math/rand"
 import "core:time"
 
@@ -36,7 +37,7 @@ snake_init :: proc(s: ^t.Screen) -> Snake {
 		append(&body, curr_pos)
 	}
 
-	pos.x += DEFAULT_SNAKE_SIZE - 1
+	pos.x += DEFAULT_SNAKE_SIZE
 
 	return Snake{head = pos, body = body, dir = .Right}
 }
@@ -46,7 +47,7 @@ snake_destroy :: proc(snake: Snake) {
 }
 
 snake_draw :: proc(snake: Snake, s: ^t.Screen) {
-	t.set_color_style_8(s, .Green, .Green)
+	t.set_color_style_8(s, nil, .Green)
 	defer t.reset_styles(s)
 
 	for part in snake.body {
@@ -54,7 +55,7 @@ snake_draw :: proc(snake: Snake, s: ^t.Screen) {
 		t.write(s, ' ')
 	}
 
-	t.set_color_style_8(s, .White, .White)
+	t.set_color_style_8(s, nil, .White)
 	t.move_cursor(s, snake.head.y, snake.head.x)
 	t.write(s, ' ')
 }
@@ -123,6 +124,7 @@ snake_handle_input :: proc(s: ^t.Screen, game: ^Game, input: t.Input_Seq) {
 	}
 
 	ordered_remove(&snake.body, 0)
+	append(&snake.body, snake.head)
 
 	switch snake.dir {
 	case .Up:
@@ -150,8 +152,6 @@ snake_handle_input :: proc(s: ^t.Screen, game: ^Game, input: t.Input_Seq) {
 	if snake.head.x <= box.x {
 		snake.head.x = box.x + box.w - 1
 	}
-
-	append(&snake.body, snake.head)
 }
 
 Food :: struct {
@@ -163,10 +163,8 @@ food_generate :: proc(game: Game) -> Food {
 	x, y: uint
 
 	for {
-		x = cast(uint)rand.uint32() % (box.x + box.w)
-		y = cast(uint)rand.uint32() % (box.y + box.h)
-		if x < box.x do x += box.x
-		if y < box.y do y += box.y
+		x = (cast(uint)rand.uint32() % (box.w - 1)) + box.x + 1
+		y = (cast(uint)rand.uint32() % (box.h - 1)) + box.y + 1
 
 		no_collision := true
 		for part in game.snake.body {
@@ -201,14 +199,26 @@ game_destroy :: proc(game: Game) {
 	snake_destroy(game.snake)
 }
 
-game_tick :: proc(s: ^t.Screen, game: ^Game) {
+game_is_over :: proc(game: Game, s: ^t.Screen) -> bool {
+	snake := game.snake
+	for part in snake.body {
+		if part.x == snake.head.x && part.y == snake.head.y {
+			return true
+		}
+	}
+
+	return false
+}
+
+game_tick :: proc(game: ^Game, s: ^t.Screen) {
 	if game.snake.head.x == game.food.x && game.snake.head.y == game.food.y {
 		game.score += 1
 		game.food = food_generate(game^)
+		append(&game.snake.body, game.snake.body[len(game.snake.body) - 1])
 	}
 
 	t.move_cursor(s, game.food.y, game.food.x)
-	t.set_color_style_8(s, .Yellow, .Yellow)
+	t.set_color_style_8(s, nil, .Yellow)
 	t.write(s, ' ')
 	t.reset_styles(s)
 
@@ -216,12 +226,12 @@ game_tick :: proc(s: ^t.Screen, game: ^Game) {
 	box_draw(game^, s)
 }
 
+
 main :: proc() {
 	s := t.init_screen()
 	defer t.destroy_screen(&s)
-	t.set_term_mode(&s, .Raw)
+	t.set_term_mode(&s, .Cbreak)
 	t.hide_cursor(true)
-	defer t.hide_cursor(false)
 	t.clear_screen(&s, .Everything)
 	t.blit_screen(&s)
 
@@ -231,21 +241,18 @@ main :: proc() {
 	for {
 		defer t.blit_screen(&s)
 
+		if game_is_over(game, &s) {
+			t.move_cursor(&s, game.box.y + game.box.h + 5, 0)
+			t.write(&s, "=== Game Over ===\n")
+			break
+		}
+
 		time.stopwatch_start(&stopwatch)
 		defer time.stopwatch_reset(&stopwatch)
 		t.clear_screen(&s, .Everything)
 
-
 		input, has_input := t.read(&s)
 		keys := t.interpret_input(input)
-
-		if has_input {
-			#partial switch keys.key {
-			case .Escape:
-				return
-			}
-		}
-
 		snake_handle_input(&s, &game, keys)
 
 		for {
@@ -256,7 +263,7 @@ main :: proc() {
 			}
 		}
 
-		game_tick(&s, &game)
+		game_tick(&game, &s)
 	}
 }
 
