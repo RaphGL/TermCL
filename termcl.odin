@@ -31,7 +31,6 @@ destroy_screen :: proc(screen: ^Screen) {
 	free_all(screen.allocator)
 	posix.tcsetattr(posix.STDIN_FILENO, .TCSANOW, &screen.original_termstate)
 	strings.builder_destroy(&screen.seq_builder)
-	hide_cursor(false)
 }
 
 blit_screen :: proc(screen: ^Screen) {
@@ -404,7 +403,6 @@ interpret_input :: proc(input: Input) -> Input_Seq {
 	return {}
 }
 
-
 Term_Mode :: enum {
 	// Raw mode, prevents the terminal from preprocessing inputs
 	Raw,
@@ -449,5 +447,9 @@ set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 		fmt.eprintln(#procedure, "failed:", "tcsetattr returned an error")
 		os.exit(1)
 	}
+}
+
+Screen_Size :: struct {
+	h, w: uint,
 }
 
