@@ -1,7 +1,6 @@
 package main
 
 import t "../.."
-import "core:fmt"
 import "core:math/rand"
 import "core:time"
 
@@ -18,15 +17,15 @@ Snake :: struct {
 	dir:  Direction,
 }
 
-get_term_center :: proc() -> [2]uint {
-	termsize := t.get_term_size()
+get_term_center :: proc(s: ^t.Screen) -> [2]uint {
+	termsize := t.get_term_size(s)
 	pos := [2]uint{termsize.w / 2, termsize.h / 2}
 	return pos
 }
 
 snake_init :: proc(s: ^t.Screen) -> Snake {
 	DEFAULT_SNAKE_SIZE :: 4
-	pos := get_term_center()
+	pos := get_term_center(s)
 	pos.x -= DEFAULT_SNAKE_SIZE
 
 	body := make([dynamic][2]uint)
@@ -64,8 +63,8 @@ Game_Box :: struct {
 	x, y, w, h: uint,
 }
 
-box_init :: proc() -> Game_Box {
-	termcenter := get_term_center()
+box_init :: proc(s: ^t.Screen) -> Game_Box {
+	termcenter := get_term_center(s)
 
 	BOX_HEIGHT :: 20
 	BOX_WIDTH :: 60
@@ -189,7 +188,7 @@ Game :: struct {
 game_init :: proc(s: ^t.Screen) -> Game {
 	game := Game {
 		snake = snake_init(s),
-		box   = box_init(),
+		box   = box_init(s),
 	}
 	game.food = food_generate(game)
 	return game
@@ -251,7 +250,7 @@ main :: proc() {
 		defer time.stopwatch_reset(&stopwatch)
 		t.clear_screen(&s, .Everything)
 
-		input, has_input := t.read(&s)
+		input, _ := t.read(&s)
 		keys := t.parse_keyboard_input(input)
 
 		if keys.key == .Escape {

@@ -55,10 +55,10 @@ paint_buffer_set_cell :: proc(
 		return
 	}
 
-	y := y - pbuf.y
-	x := x - pbuf.x
+	computed_y := y - pbuf.y
+	computed_x := x - pbuf.x
 
-	pbuf.buffer[y][x] = color
+	pbuf.buffer[computed_y][computed_x] = color
 }
 
 main :: proc() {
@@ -79,7 +79,7 @@ main :: proc() {
 		defer t.blit_screen(&s)
 		defer paint_buffer_to_screen(pbuf, &s)
 
-		termsize := t.get_term_size()
+		termsize := t.get_term_size(&s)
 
 		if termsize.w <= PAINT_BUFFER_WIDTH && termsize.w <= PAINT_BUFFER_WIDTH {
 			t.clear_screen(&s, .Everything)
