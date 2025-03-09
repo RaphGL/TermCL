@@ -3,7 +3,7 @@ package termcl
 
 import "core:fmt"
 import "core:os"
-import "core:unicode"
+import "core:strconv"
 
 Input :: distinct []byte
 
@@ -114,7 +114,7 @@ Input_Seq :: struct {
 	key: Key,
 }
 
-parse_input :: proc(input: Input) -> Input_Seq {
+parse_keyboard_input :: proc(input: Input) -> Input_Seq {
 	input := input
 	seq: Input_Seq
 
@@ -400,5 +400,90 @@ parse_input :: proc(input: Input) -> Input_Seq {
 	}
 
 	return {}
+}
+
+Mouse_Event :: enum {
+	Pressed,
+	Released,
+}
+
+Mouse_Key :: enum {
+	None,
+	Left,
+	Middle,
+	Right,
+	Scroll_Up,
+	Scroll_Down,
+}
+
+Mouse_Input :: struct {
+	event: bit_set[Mouse_Event],
+	mod:   bit_set[Mod],
+	key:   Mouse_Key,
+	coord: struct {
+		x, y: uint,
+	},
+}
+
+parse_mouse_input :: proc(input: Input) -> (mouse_input: Mouse_Input, has_input: bool) {
+	if len(input) < 6 {
+		return {}, false
+	}
+
+	if input[0] != '\x1b' && input[1] != '[' && input[2] != '<' {
+		return {}, false
+	}
+
+	consume_semicolon :: proc(input: ^string) {
+		if len(input) >= 1 && input[0] == ';' {
+			input^ = input[1:]
+		}
+	}
+
+	consumed: int
+	input := cast(string)input[3:]
+
+	mod, _ := strconv.parse_uint(input, n = &consumed)
+	input = input[consumed:]
+	consume_semicolon(&input)
+
+	x_coord, _ := strconv.parse_uint(input, n = &consumed)
+	input = input[consumed:]
+	consume_semicolon(&input)
+
+	y_coord, _ := strconv.parse_uint(input, n = &consumed)
+	input = input[consumed:]
+
+	mouse_event: bit_set[Mouse_Event]
+	if input[0] == 'm' do mouse_event |= {.Released}
+	if input[0] == 'M' do mouse_event |= {.Pressed}
+
+	mouse_key: Mouse_Key
+	low_two_bits := mod & 0b11
+	switch low_two_bits {
+	case 0:
+		mouse_key = .Left
+	case 1:
+		mouse_key = .Middle
+	case 2:
+		mouse_key = .Right
+	}
+
+	next_three_bits := mod & 0b11100
+	mouse_mod: bit_set[Mod]
+	if next_three_bits & 4 == 4 do mouse_mod |= {.Shift}
+	if next_three_bits & 8 == 8 do mouse_mod |= {.Alt}
+	if next_three_bits & 16 == 16 do mouse_mod |= {.Ctrl}
+
+	if mod & 64 == 64 do mouse_key = .Scroll_Up
+	if mod & 65 == 65 do mouse_key = .Scroll_Down
+
+	return Mouse_Input {
+			event = mouse_event,
+			mod = mouse_mod,
+			key = mouse_key,
+			coord = {x = x_coord, y = y_coord},
+		},
+		true
 }
 

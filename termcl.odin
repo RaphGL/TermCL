@@ -29,7 +29,7 @@ init_screen :: proc(allocator := context.temp_allocator) -> Screen {
 
 destroy_screen :: proc(screen: ^Screen) {
 	free_all(screen.allocator)
-	posix.tcsetattr(posix.STDIN_FILENO, .TCSANOW, &screen.original_termstate)
+	set_term_mode(screen, .Restored)
 	strings.builder_destroy(&screen.seq_builder)
 }
 
@@ -269,9 +269,22 @@ set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 		fmt.eprintln(#procedure, "failed:", "tcsetattr returned an error")
 		os.exit(1)
 	}
+
+	enable_mouse(mode == .Raw || mode == .Cbreak)
 }
 
 Screen_Size :: struct {
 	h, w: uint,
+}
+
+enable_mouse :: proc(enable: bool) {
+	ANY_EVENT :: "\x1b[?1003"
+	SGR_MOUSE :: "\x1b[?1006"
+
+	if enable {
+		fmt.print(ANY_EVENT + "h", SGR_MOUSE + "h")
+	} else {
+		fmt.print(ANY_EVENT + "l", SGR_MOUSE + "l")
+	}
 }
 
