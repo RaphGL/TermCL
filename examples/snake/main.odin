@@ -252,7 +252,7 @@ main :: proc() {
 		t.clear_screen(&s, .Everything)
 
 		input, has_input := t.read(&s)
-		keys := t.interpret_input(input)
+		keys := t.parse_keyboard_input(input)
 
 		if keys.key == .Escape {
 			break
