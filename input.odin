@@ -118,9 +118,7 @@ parse_keyboard_input :: proc(input: Input) -> Input_Seq {
 	input := input
 	seq: Input_Seq
 
-	if len(input) == 0 {
-		return {}
-	}
+	if len(input) == 0 do return {}
 
 	if len(input) == 1 {
 		switch input[0] {
@@ -426,13 +424,9 @@ Mouse_Input :: struct {
 }
 
 parse_mouse_input :: proc(input: Input) -> (mouse_input: Mouse_Input, has_input: bool) {
-	if len(input) < 6 {
-		return {}, false
-	}
+	if len(input) < 6 do return
 
-	if input[0] != '\x1b' && input[1] != '[' && input[2] != '<' {
-		return {}, false
-	}
+	if input[0] != '\x1b' && input[1] != '[' && input[2] != '<' do return
 
 	consume_semicolon :: proc(input: ^string) {
 		if len(input) >= 1 && input[0] == ';' {
@@ -482,8 +476,8 @@ parse_mouse_input :: proc(input: Input) -> (mouse_input: Mouse_Input, has_input:
 			event = mouse_event,
 			mod = mouse_mod,
 			key = mouse_key,
-			coord = {x = x_coord, y = y_coord},
-		},
-		true
+			// coords are converted so it's 0 based index
+			coord = {x = x_coord - 1, y = y_coord - 1},
+		}, true
 }
 

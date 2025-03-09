@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:encoding/ansi"
 import "core:fmt"
 import "core:os"
+import "core:strconv"
 import "core:strings"
 import "core:sys/posix"
 
@@ -169,6 +170,11 @@ set_color_style_rgb :: proc(screen: ^Screen, fg: RGB_Color, bg: Maybe(RGB_Color)
 	}
 }
 
+set_color_style :: proc {
+	set_color_style_8,
+	set_color_style_rgb,
+}
+
 reset_styles :: proc(screen: ^Screen) {
 	strings.write_string(&screen.seq_builder, ansi.CSI + "0m")
 }
@@ -277,6 +283,22 @@ Screen_Size :: struct {
 	h, w: uint,
 }
 
+get_term_size :: proc(screen: ^Screen) -> Screen_Size {
+	win, ok := get_term_size_via_syscall()
+	if ok do return win
+
+	curr_pos, _ := get_cursor_position(screen)
+
+	MAX_CURSOR_POSITION :: ansi.CSI + "9999;9999H"
+	fmt.print(MAX_CURSOR_POSITION)
+	pos, _ := get_cursor_position(screen)
+
+	// restore cursor position
+	fmt.printf(ansi.CSI + "%d;%dH", curr_pos.y, curr_pos.x)
+
+	return Screen_Size{w = pos.x, h = pos.y}
+}
+
 enable_mouse :: proc(enable: bool) {
 	ANY_EVENT :: "\x1b[?1003"
 	SGR_MOUSE :: "\x1b[?1006"
@@ -286,5 +308,36 @@ enable_mouse :: proc(enable: bool) {
 	} else {
 		fmt.print(ANY_EVENT + "l", SGR_MOUSE + "l")
 	}
+}
+
+Cursor_Position :: struct {
+	y, x: uint,
+}
+
+get_cursor_position :: proc(screen: ^Screen) -> (pos: Cursor_Position, success: bool) {
+	fmt.print("\x1b[6n")
+	input, has_input := read(screen)
+
+	if !has_input || len(input) < 6 {
+		return
+	}
+
+	if input[0] != '\x1b' && input[1] != '[' do return
+	if input[len(input) - 1] != 'R' do return
+	input_str := cast(string)input[2:len(input) - 1]
+
+	consumed: int
+	y, _ := strconv.parse_uint(input_str, n = &consumed)
+	input_str = input_str[consumed:]
+
+	if input_str[0] != ';' do return
+	input_str = input_str[1:]
+
+	x, _ := strconv.parse_uint(input_str, n = &consumed)
+	input_str = input_str[consumed:]
+
+	if len(input_str) != 0 do return
+
+	return Cursor_Position{x = x - 1, y = y - 1}, true
 }
 
