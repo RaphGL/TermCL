@@ -6,20 +6,23 @@ import "core:fmt"
 import "core:os"
 import "core:strconv"
 import "core:strings"
-import "core:sys/posix"
 
 Screen :: struct {
 	allocator:          runtime.Allocator,
 	seq_builder:        strings.Builder,
-	original_termstate: posix.termios,
+	original_termstate: Terminal_State,
 	input_buf:          [512]byte,
 }
 
-init_screen :: proc(allocator := context.temp_allocator) -> Screen {
+// Initializes screen and saves terminal state
+init_screen :: proc(allocator := context.allocator) -> Screen {
 	context.allocator = allocator
 
-	termstate: posix.termios
-	posix.tcgetattr(posix.STDIN_FILENO, &termstate)
+	termstate, ok := get_terminal_state()
+	if !ok {
+		fmt.eprintln("failed to get terminal state")
+		os.exit(1)
+	}
 
 	return Screen {
 		allocator = allocator,
@@ -28,26 +31,29 @@ init_screen :: proc(allocator := context.temp_allocator) -> Screen {
 	}
 }
 
+// Restores terminal settings and does necessary memory cleanup
 destroy_screen :: proc(screen: ^Screen) {
-	free_all(screen.allocator)
 	set_term_mode(screen, .Restored)
 	strings.builder_destroy(&screen.seq_builder)
 }
 
+// Sends instructions to terminal
 blit_screen :: proc(screen: ^Screen) {
 	fmt.print(strings.to_string(screen.seq_builder))
 	strings.builder_reset(&screen.seq_builder)
 }
 
-Direction :: enum {
+Cursor_Direction :: enum {
 	Up,
 	Down,
 	Left,
 	Right,
 }
 
-// changes the cursor's position relative to the current position
-step_cursor :: proc(screen: ^Screen, dir: bit_set[Direction], steps: uint) {
+// Changes the cursor's position relative to the current position
+//
+// The steps will be applied in every direction set the `dir` bit_set
+step_cursor :: proc(screen: ^Screen, dir: bit_set[Cursor_Direction], steps: uint) {
 	MOVE_CURSOR_UP :: ansi.CSI + "%dA"
 	MOVE_CURSOR_DOWN :: ansi.CSI + "%dB"
 	MOVE_CURSOR_RIGHT :: ansi.CSI + "%dC"
@@ -67,7 +73,7 @@ step_cursor :: proc(screen: ^Screen, dir: bit_set[Direction], steps: uint) {
 	}
 }
 
-// changes the cursor's absolute position
+// Changes the cursor's absolute position
 move_cursor :: proc(screen: ^Screen, y, x: uint) {
 	CURSOR_POSITION :: ansi.CSI + "%d;%dH"
 	// x and y are shifted by one position so that programmers can keep using 0 based indexing
@@ -83,6 +89,7 @@ Text_Style :: enum {
 	Dim,
 }
 
+// Hides the terminal cursor
 hide_cursor :: proc(hide: bool) {
 	SHOW_CURSOR :: ansi.CSI + "?25h"
 	HIDE_CURSOR :: ansi.CSI + "?25l"
@@ -116,7 +123,7 @@ Color_8 :: enum {
 	White,
 }
 
-// sets colors based from the original 8 color palette
+// Sets background and foreground colors based on the original 8 color palette
 set_color_style_8 :: proc(screen: ^Screen, fg: Maybe(Color_8), bg: Maybe(Color_8)) {
 	SGR_COLOR :: ansi.CSI + "%dm"
 
@@ -159,6 +166,8 @@ RGB_Color :: struct {
 	r, g, b: u8,
 }
 
+// Sets background and foreground colors based on the RGB values.
+// The terminal has to support true colors for it to work.
 set_color_style_rgb :: proc(screen: ^Screen, fg: RGB_Color, bg: Maybe(RGB_Color)) {
 	RGB_FG_COLOR :: ansi.CSI + "38;2;%d;%d;%dm"
 	RGB_BG_COLOR :: ansi.CSI + "48;2;%d;%d;%dm"
@@ -170,11 +179,14 @@ set_color_style_rgb :: proc(screen: ^Screen, fg: RGB_Color, bg: Maybe(RGB_Color)
 	}
 }
 
+// Sets foreground and background colors
 set_color_style :: proc {
 	set_color_style_8,
 	set_color_style_rgb,
 }
 
+// Resets all styles previously set.
+// It is good practice to reset after being done with a style as to prevent styles to be applied erroneously.
 reset_styles :: proc(screen: ^Screen) {
 	strings.write_string(&screen.seq_builder, ansi.CSI + "0m")
 }
@@ -185,8 +197,7 @@ Clear_Mode :: enum {
 	Everything,
 }
 
-// clears screen starting from current line.
-// can clear everything or before or after the current line
+// Clears screen starting from current line.
 clear_screen :: proc(screen: ^Screen, mode: Clear_Mode) {
 	switch mode {
 	case .After_Cursor:
@@ -198,7 +209,7 @@ clear_screen :: proc(screen: ^Screen, mode: Clear_Mode) {
 	}
 }
 
-// clears current line before or after cursor or entirely
+// Only clears the line the cursor is in
 clear_line :: proc(screen: ^Screen, mode: Clear_Mode) {
 	switch mode {
 	case .After_Cursor:
@@ -210,23 +221,28 @@ clear_line :: proc(screen: ^Screen, mode: Clear_Mode) {
 	}
 }
 
+// Ring terminal bell. (potentially annoying to users :P)
 ring_bell :: proc() {
 	fmt.print("\a")
 }
 
+// Writes a string to the terminal
 write_string :: proc(screen: ^Screen, str: string) {
 	strings.write_string(&screen.seq_builder, str)
 }
 
+// Writes a rune to the terminal
 write_rune :: proc(screen: ^Screen, r: rune) {
 	strings.write_rune(&screen.seq_builder, r)
 }
 
+// Write to the terminal
 write :: proc {
 	write_string,
 	write_rune,
 }
 
+// Write a formatted string to the terminal
 writef :: proc(screen: ^Screen, format: string, args: ..any) {
 	fmt.sbprintf(&screen.seq_builder, format, ..args)
 }
@@ -240,42 +256,13 @@ Term_Mode :: enum {
 	Cbreak,
 }
 
+// Change terminal mode.
+// 
+// This changes how the terminal processes inputs.
+// By default the terminal will process inputs, preventing you to have full access to user input.
+// Changing the terminal mode will your program to process every input.
 set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
-	raw: posix.termios
-	if posix.tcgetattr(posix.STDIN_FILENO, &raw) != .OK {
-		fmt.eprintln(#procedure, "failed:", "tcgetattr returned an error")
-		os.exit(1)
-	}
-
-	switch mode {
-	case .Raw:
-		raw.c_lflag -= {.ECHO, .ICANON, .ISIG, .IEXTEN}
-		raw.c_iflag -= {.ICRNL, .IXON}
-		raw.c_oflag -= {.OPOST}
-
-		// probably meaningless on modern terminals but apparently it's good practice
-		raw.c_iflag -= {.BRKINT, .INPCK, .ISTRIP}
-		raw.c_cflag |= {.CS8}
-
-	case .Cbreak:
-		raw.c_lflag -= {.ECHO, .ICANON}
-
-	case .Restored:
-		raw = screen.original_termstate
-	}
-
-	if mode == .Raw || mode == .Cbreak {
-		// timeout for reads
-		raw.c_cc[.VMIN] = 0
-		raw.c_cc[.VTIME] = 1 // 100 ms
-
-	}
-
-	if posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw) != .OK {
-		fmt.eprintln(#procedure, "failed:", "tcsetattr returned an error")
-		os.exit(1)
-	}
-
+	change_terminal_mode(screen, mode)
 	enable_mouse(mode == .Raw || mode == .Cbreak)
 }
 
@@ -283,6 +270,10 @@ Screen_Size :: struct {
 	h, w: uint,
 }
 
+// Get the terminal screen size.
+//
+// The width and height are measured in number of cells not pixels.
+// Aka the same value you use with `move_mouse` and other functions.
 get_term_size :: proc(screen: ^Screen) -> Screen_Size {
 	win, ok := get_term_size_via_syscall()
 	if ok do return win
@@ -299,6 +290,9 @@ get_term_size :: proc(screen: ^Screen) -> Screen_Size {
 	return Screen_Size{w = pos.x, h = pos.y}
 }
 
+// Enable mouse to be able to respond to mouse inputs.
+// 
+// It's enabled by default. This is here so you can opt-out of it or control when to enable or disable it.
 enable_mouse :: proc(enable: bool) {
 	ANY_EVENT :: "\x1b[?1003"
 	SGR_MOUSE :: "\x1b[?1006"
@@ -314,6 +308,7 @@ Cursor_Position :: struct {
 	y, x: uint,
 }
 
+// Get the current cursor position.
 get_cursor_position :: proc(screen: ^Screen) -> (pos: Cursor_Position, success: bool) {
 	fmt.print("\x1b[6n")
 	input, has_input := read(screen)

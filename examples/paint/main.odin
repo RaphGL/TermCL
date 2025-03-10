@@ -15,7 +15,6 @@ Paint_Buffer :: struct {
 	buffer: [PAINT_BUFFER_HEIGHT][PAINT_BUFFER_WIDTH]Maybe(t.Color_8),
 }
 
-
 paint_buffer_to_screen :: proc(pbuf: Paint_Buffer, s: ^t.Screen) {
 	defer t.reset_styles(s)
 
@@ -112,8 +111,8 @@ main :: proc() {
 			}
 		}
 
-		keyboard := t.parse_keyboard_input(input)
-		if (keyboard.mod == .Ctrl && keyboard.key == .C) || keyboard.key == .Q {
+		keyboard, kb_has_input := t.parse_keyboard_input(input)
+		if kb_has_input && (keyboard.mod == .Ctrl && keyboard.key == .C) || keyboard.key == .Q {
 			break
 		}
 	}

@@ -1,4 +1,3 @@
-// handles user inputs
 package termcl
 
 import "core:fmt"
@@ -7,6 +6,7 @@ import "core:strconv"
 
 Input :: distinct []byte
 
+// Reads input from the terminal
 read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
 	if err != nil {
@@ -114,11 +114,13 @@ Input_Seq :: struct {
 	key: Key,
 }
 
-parse_keyboard_input :: proc(input: Input) -> Input_Seq {
+// Parses the raw bytes sent by the terminal in `Input` and returns an input sequence
+// If there's no valid keyboard input, `has_input` is false
+parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Input_Seq, has_input: bool) {
 	input := input
 	seq: Input_Seq
 
-	if len(input) == 0 do return {}
+	if len(input) == 0 do return
 
 	if len(input) == 1 {
 		switch input[0] {
@@ -241,15 +243,15 @@ parse_keyboard_input :: proc(input: Input) -> Input_Seq {
 		case ' ':
 			seq.key = .Space
 		}
-		return seq
+		return seq, true
 	}
 
-	if input[0] != '\x1b' do return {}
+	if input[0] != '\x1b' do return
 
 	if input[1] == 10 {
 		seq.mod = .Alt
 		seq.key = .Enter
-		return seq
+		return seq, true
 	}
 
 	if len(input) > 3 {
@@ -281,7 +283,7 @@ parse_keyboard_input :: proc(input: Input) -> Input_Seq {
 
 		}
 
-		if input[1] == 'O' do return seq
+		if input[1] == 'O' do return seq, true
 	}
 
 	if input[1] == '[' {
@@ -394,10 +396,10 @@ parse_keyboard_input :: proc(input: Input) -> Input_Seq {
 			}
 		}
 
-		return seq
+		return seq, true
 	}
 
-	return {}
+	return
 }
 
 Mouse_Event :: enum {
@@ -423,15 +425,17 @@ Mouse_Input :: struct {
 	},
 }
 
+// Parses the raw bytes sent by the terminal in `Input` and returns an input sequence
+// If there's no valid mouse input, `has_input` is false
 parse_mouse_input :: proc(input: Input) -> (mouse_input: Mouse_Input, has_input: bool) {
 	if len(input) < 6 do return
 
 	if input[0] != '\x1b' && input[1] != '[' && input[2] != '<' do return
 
-	consume_semicolon :: proc(input: ^string) {
-		if len(input) >= 1 && input[0] == ';' {
-			input^ = input[1:]
-		}
+	consume_semicolon :: proc(input: ^string) -> bool {
+		is_semicolon := len(input) >= 1 && input[0] == ';'
+		if is_semicolon do input^ = input[1:]
+		return is_semicolon
 	}
 
 	consumed: int
@@ -439,11 +443,11 @@ parse_mouse_input :: proc(input: Input) -> (mouse_input: Mouse_Input, has_input:
 
 	mod, _ := strconv.parse_uint(input, n = &consumed)
 	input = input[consumed:]
-	consume_semicolon(&input)
+	consume_semicolon(&input) or_return
 
 	x_coord, _ := strconv.parse_uint(input, n = &consumed)
 	input = input[consumed:]
-	consume_semicolon(&input)
+	consume_semicolon(&input) or_return
 
 	y_coord, _ := strconv.parse_uint(input, n = &consumed)
 	input = input[consumed:]
