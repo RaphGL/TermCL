@@ -7,6 +7,19 @@ import "core:strconv"
 Input :: distinct []byte
 
 // Reads input from the terminal
+//
+// The Input returned is a slice of bytes returned from the terminal.
+// If you want to read a single character, you could just handle it directly without
+// having to parse the input.
+//
+// example:
+// ```odin
+// input := read(&screen)
+// if len(input) == 1 do switch input[0] {
+//   case 'a':
+//   case 'b': 
+// }
+// ```
 read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
 	if err != nil {
@@ -100,6 +113,18 @@ Key :: enum {
 	Asterisk,
 	Backtick,
 	Space,
+	Dollar,
+	Exclamation,
+	Hash,
+	Percent,
+	Ampersand,
+	Tick,
+	Underscore,
+	Caret,
+	Comma,
+	Pipe,
+	At,
+	Tilde,
 }
 
 Mod :: enum {
@@ -205,6 +230,8 @@ parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Input_Seq, has_in
 		case 'z', 'Z':
 			seq.key = .Z
 		case ',':
+			seq.key = .Comma
+		case ':':
 			seq.key = .Colon
 		case ';':
 			seq.key = .Semicolon
@@ -242,7 +269,30 @@ parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Input_Seq, has_in
 			seq.key = .Backslash
 		case ' ':
 			seq.key = .Space
+		case '$':
+			seq.key = .Dollar
+		case '!':
+			seq.key = .Exclamation
+		case '#':
+			seq.key = .Hash
+		case '%':
+			seq.key = .Percent
+		case '&':
+			seq.key = .Ampersand
+		case '´':
+			seq.key = .Tick
+		case '_':
+			seq.key = .Underscore
+		case '^':
+			seq.key = .Caret
+		case '|':
+			seq.key = .Pipe
+		case '@':
+			seq.key = .At
+		case '~':
+			seq.key = .Tilde
 		}
+
 		return seq, true
 	}
 

@@ -1,27 +1,42 @@
 package termcl
 
+import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:os"
 import "core:sys/linux"
 import "core:sys/posix"
 
-when ODIN_OS ==
-	.Linux || ODIN_OS == .Haiku || ODIN_OS == .Darwin || ODIN_OS == .FreeBSD || ODIN_OS == .NetBSD || ODIN_OS == .OpenBSD {
+VALID_POSIX_OSES :: bit_set[runtime.Odin_OS_Type] {
+	.Linux,
+	.Haiku,
+	.Darwin,
+	.FreeBSD,
+	.NetBSD,
+	.OpenBSD,
+}
+
+when ODIN_OS in VALID_POSIX_OSES {
 	Terminal_State :: struct {
 		state: posix.termios,
 	}
+}
 
-	@(private)
-	get_terminal_state :: proc() -> (Terminal_State, bool) {
+
+@(private)
+get_terminal_state :: proc() -> (Terminal_State, bool) {
+	when ODIN_OS in VALID_POSIX_OSES {
 		termstate: posix.termios
 		ok := posix.tcgetattr(posix.STDIN_FILENO, &termstate) == .OK
 		return Terminal_State{state = termstate}, ok
-
+	} else {
+		return {}, false
 	}
+}
 
-	@(private)
-	change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
+@(private)
+change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
+	when ODIN_OS in VALID_POSIX_OSES {
 		termstate, ok := get_terminal_state()
 		if !ok {
 			fmt.eprintln(#procedure, "failed:", "tcgetattr returned an error")
@@ -61,8 +76,8 @@ when ODIN_OS ==
 	}
 }
 
-when ODIN_OS == .Linux {
-	get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
+get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
+	when ODIN_OS == .Linux {
 		winsize :: struct {
 			ws_row, ws_col:       c.ushort,
 			ws_xpixel, ws_ypixel: c.ushort,
@@ -82,9 +97,7 @@ when ODIN_OS == .Linux {
 		}
 
 		return win, true
-	}
-} else {
-	get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
+	} else {
 		return {}, false
 	}
 }
