@@ -3,6 +3,7 @@ package termcl
 import "core:fmt"
 import "core:os"
 import "core:strconv"
+import "core:unicode"
 
 Input :: distinct []byte
 
@@ -148,6 +149,20 @@ parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Input_Seq, has_in
 	if len(input) == 0 do return
 
 	if len(input) == 1 {
+		input_rune := cast(rune)input[0]
+		if unicode.is_upper(input_rune) {
+			seq.mod = .Shift
+		}
+
+		if unicode.is_control(input_rune) {
+			switch input_rune {
+			case '\r', '\n', '\t':
+			case:
+				seq.mod = .Ctrl
+				input[0] += 64
+			}
+		}
+
 		switch input[0] {
 		case '\x1b':
 			seq.key = .Escape
@@ -291,6 +306,8 @@ parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Input_Seq, has_in
 			seq.key = .At
 		case '~':
 			seq.key = .Tilde
+		case:
+			return
 		}
 
 		return seq, true
@@ -367,6 +384,9 @@ parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Input_Seq, has_in
 				seq.key = .Arrow_Right
 			case 'D':
 				seq.key = .Arrow_Left
+			case 'Z':
+				seq.key = .Tab
+				seq.mod = .Shift
 			}
 		}
 
