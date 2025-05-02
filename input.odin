@@ -7,30 +7,6 @@ import "core:unicode"
 
 Input :: distinct []byte
 
-// Reads input from the terminal
-//
-// The Input returned is a slice of bytes returned from the terminal.
-// If you want to read a single character, you could just handle it directly without
-// having to parse the input.
-//
-// example:
-// ```odin
-// input := read(&screen)
-// if len(input) == 1 do switch input[0] {
-//   case 'a':
-//   case 'b': 
-// }
-// ```
-read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
-	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
-	if err != nil {
-		fmt.eprintln("failing to get user input")
-		os.exit(1)
-	}
-
-	return Input(screen.input_buf[:bytes_read]), bytes_read > 0
-}
-
 Key :: enum {
 	None,
 	Arrow_Left,

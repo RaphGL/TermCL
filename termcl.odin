@@ -20,8 +20,7 @@ init_screen :: proc(allocator := context.allocator) -> Screen {
 
 	termstate, ok := get_terminal_state()
 	if !ok {
-		fmt.eprintln("failed to get terminal state")
-		os.exit(1)
+		panic("failed to get terminal state")
 	}
 
 	return Screen {
@@ -264,6 +263,7 @@ Term_Mode :: enum {
 set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	change_terminal_mode(screen, mode)
 	enable_mouse(mode == .Raw || mode == .Cbreak)
+	hide_cursor(false)
 }
 
 Screen_Size :: struct {

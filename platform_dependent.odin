@@ -30,18 +30,16 @@ when ODIN_OS in VALID_POSIX_OSES {
 		output_mode:     windows.DWORD,
 	}
 } else {
-	Terminal_State :: struct {
-	}
+	Terminal_State :: struct {}
 }
-
 
 @(private)
 get_terminal_state :: proc() -> (Terminal_State, bool) {
 	when ODIN_OS in VALID_POSIX_OSES {
-		termstate: Terminal_State
+		termstate: posix.termios
 		ok := posix.tcgetattr(posix.STDIN_FILENO, &termstate) == .OK
 		return Terminal_State{state = termstate}, ok
-	};when ODIN_OS == .Windows {
+	} else when ODIN_OS == .Windows {
 		termstate: Terminal_State
 		windows.GetConsoleMode(windows.HANDLE(os.stdout), &termstate.output_mode)
 		termstate.output_codepage = windows.GetConsoleOutputCP()
@@ -80,13 +78,6 @@ change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 
 		case .Restored:
 			raw = screen.original_termstate.state
-		}
-
-		if mode == .Raw || mode == .Cbreak {
-			// timeout for reads
-			raw.c_cc[.VMIN] = 0
-			raw.c_cc[.VTIME] = 1 // 100 ms
-
 		}
 
 		if posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw) != .OK {
@@ -170,3 +161,50 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 		return {}, false
 	}
 }
+
+
+read_blocking :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
+	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
+	if err != nil {
+		fmt.eprintln("failing to get user input")
+		os.exit(1)
+	}
+
+	return Input(screen.input_buf[:bytes_read]), bytes_read > 0
+}
+
+
+// Reads input from the terminal
+//
+// The Input returned is a slice of bytes returned from the terminal.
+// If you want to read a single character, you could just handle it directly without
+// having to parse the input.
+//
+// example:
+// ```odin
+// input := read(&screen)
+// if len(input) == 1 do switch input[0] {
+//   case 'a':
+//   case 'b': 
+// }
+// ```
+read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
+	when ODIN_OS in VALID_POSIX_OSES {
+		stdin_pollfd := posix.pollfd {
+			fd     = posix.STDIN_FILENO,
+			events = {.IN},
+		}
+
+		if posix.poll(&stdin_pollfd, 1, 8) > 0 {
+			return read_blocking(screen)
+		}
+	} else when ODIN_OS == .Windows {
+		// TODO
+		#panic("windows nonblocking read is not implemented yet")
+	} else {
+		#panic("nonblocking read is not supported in the target platform")
+	}
+
+	return
+}
+
