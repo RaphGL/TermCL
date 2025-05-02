@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:os"
+import "core:strings"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:sys/windows"
@@ -130,7 +131,7 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 			ws_xpixel, ws_ypixel: c.ushort,
 		}
 
-		// right this is supported by all odin platforms
+		// right now this is supported by all odin platforms
 		// but there's a few platforms that have a different value
 		// check: https://github.com/search?q=repo%3Atorvalds%2Flinux%20TIOCGWINSZ&type=code
 		TIOCGWINSZ :: 0x5413
@@ -162,7 +163,9 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 	}
 }
 
-
+// Reads input from the terminal.
+// The read blocks execution until a value is read.  
+// If you want it to not block, use `read` instead.
 read_blocking :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
 	if err != nil {
@@ -175,6 +178,7 @@ read_blocking :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 
 
 // Reads input from the terminal
+// Reading is nonblocking, if you want it to block, use `read_blocking`
 //
 // The Input returned is a slice of bytes returned from the terminal.
 // If you want to read a single character, you could just handle it directly without
@@ -199,12 +203,33 @@ read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 			return read_blocking(screen)
 		}
 	} else when ODIN_OS == .Windows {
-		// TODO
-		#panic("windows nonblocking read is not implemented yet")
+		num_events: u32
+		if !windows.GetNumberOfConsoleInputEvents(windows.HANDLE(os.stdin), &num_events) {
+			error_id := windows.GetLastError()
+			error_msg: ^u16
+
+			strsize := windows.FormatMessageW(
+				windows.FORMAT_MESSAGE_ALLOCATE_BUFFER |
+				windows.FORMAT_MESSAGE_FROM_SYSTEM |
+				windows.FORMAT_MESSAGE_IGNORE_INSERTS,
+				nil,
+				error_id,
+				windows.MAKELANGID(windows.LANG_NEUTRAL, windows.SUBLANG_DEFAULT),
+				cast(^u16)&error_msg,
+				0,
+				nil,
+			)
+			windows.WriteConsoleW(windows.HANDLE(os.stdout), error_msg, strsize, nil, nil)
+			windows.LocalFree(error_msg)
+			panic("Failed to get console input events")
+		}
+
+		if num_events > 0 {
+			return read_blocking(screen)
+		}
 	} else {
 		#panic("nonblocking read is not supported in the target platform")
 	}
 
 	return
 }
-
