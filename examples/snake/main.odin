@@ -102,9 +102,11 @@ box_draw :: proc(game: Game, s: ^t.Screen) {
 	draw_col(box, s, box.x)
 	draw_col(box, s, box.x + box.w)
 
-	msg := "Player Score: %d"
+	t.set_text_style(s, {.Bold})
+	msg := "Press 'q' to exit.  Player Score: %d"
 	t.move_cursor(s, box.y + box.h, box.x + (box.w / 2 - len(msg) / 2))
 	t.writef(s, msg, game.score)
+	t.reset_styles(s)
 }
 
 snake_handle_input :: proc(s: ^t.Screen, game: ^Game, input: t.Input_Seq) {
@@ -253,7 +255,7 @@ main :: proc() {
 		input, _ := t.read(&s)
 		keys, kb_has_input := t.parse_keyboard_input(input)
 
-		if kb_has_input && keys.key == .Escape {
+		if kb_has_input && (keys.key == .Q) {
 			break
 		}
 
