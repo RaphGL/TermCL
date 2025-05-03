@@ -264,8 +264,8 @@ main :: proc() {
 
 		for {
 			duration := time.stopwatch_duration(stopwatch)
-			nanosecs := duration / 1000000
-			if nanosecs > 16 {
+			millisecs := duration / 1000000
+			if millisecs > 80 {
 				break
 			}
 		}
