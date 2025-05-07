@@ -74,18 +74,18 @@ main :: proc() {
 	pbuf: Paint_Buffer
 
 	for {
-		t.clear_screen(&s, .Everything)
-		defer t.blit_screen(&s)
+		t.clear(&s, .Everything)
+		defer t.blit(&s)
 		defer paint_buffer_to_screen(pbuf, &s)
 
 		termsize := t.get_term_size(&s)
 
 		if termsize.w <= PAINT_BUFFER_WIDTH && termsize.w <= PAINT_BUFFER_WIDTH {
-			t.clear_screen(&s, .Everything)
+			t.clear(&s, .Everything)
 			size_small_msg := "Size is too small, increase size to continue or press 'q' to exit"
 			t.move_cursor(&s, termsize.h / 2, termsize.w / 2 - len(size_small_msg) / 2)
 			t.write(&s, size_small_msg)
-			t.blit_screen(&s)
+			t.blit(&s)
 		}
 
 		pbuf.x = termsize.w / 2 - PAINT_BUFFER_WIDTH / 2

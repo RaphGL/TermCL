@@ -7,9 +7,36 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 
-Screen :: struct {
-	allocator:          runtime.Allocator,
+// Sends instructions to terminal
+blit :: proc(win: $T/^Window) {
+	fmt.print(strings.to_string(win.seq_builder))
+	strings.builder_reset(&win.seq_builder)
+}
+
+Window :: struct {
 	seq_builder:        strings.Builder,
+	y_offset, x_offset: uint,
+	width, height:      Maybe(uint),
+}
+
+init_window :: proc(y, x: uint, height, width: Maybe(uint)) -> Window {
+	return Window {
+		seq_builder = strings.builder_make(),
+		y_offset = y,
+		x_offset = x,
+		height = height,
+		width = width,
+	}
+}
+
+destroy_window :: proc(win: ^Window) {
+	strings.builder_destroy(&win.seq_builder)
+}
+
+// Screen is a special derivate of Window, so it can mostly be used anywhere a Window can be used
+Screen :: struct {
+	using winbuf:       Window,
+	allocator:          runtime.Allocator,
 	original_termstate: Terminal_State,
 	input_buf:          [512]byte,
 }
@@ -25,21 +52,15 @@ init_screen :: proc(allocator := context.allocator) -> Screen {
 
 	return Screen {
 		allocator = allocator,
-		seq_builder = strings.builder_make(),
 		original_termstate = termstate,
+		winbuf = init_window(0, 0, nil, nil),
 	}
 }
 
 // Restores terminal settings and does necessary memory cleanup
 destroy_screen :: proc(screen: ^Screen) {
 	set_term_mode(screen, .Restored)
-	strings.builder_destroy(&screen.seq_builder)
-}
-
-// Sends instructions to terminal
-blit_screen :: proc(screen: ^Screen) {
-	fmt.print(strings.to_string(screen.seq_builder))
-	strings.builder_reset(&screen.seq_builder)
+	destroy_window(&screen.winbuf)
 }
 
 Cursor_Direction :: enum {
@@ -49,34 +70,56 @@ Cursor_Direction :: enum {
 	Right,
 }
 
+resolve_window_coordinates :: proc(win: $T/^Window, y, x: uint) -> (resolved_y, resolved_x: uint) {
+	resolved_x = x
+	resolved_y = y
+
+	height, h_ok := win.height.?
+	width, w_ok := win.width.?
+
+	if w_ok && h_ok {
+		resolved_y = (y % height) + win.y_offset
+		resolved_x = (x % width) + win.x_offset
+	}
+
+	// x and y are shifted by one position so that programmers can keep using 0 based indexing
+	resolved_x += 1
+	resolved_y += 1
+
+	return
+}
+
 // Changes the cursor's position relative to the current position
 //
 // The steps will be applied in every direction set the `dir` bit_set
-step_cursor :: proc(screen: ^Screen, dir: bit_set[Cursor_Direction], steps: uint) {
+step_cursor :: proc(win: $T/^Window, dir: bit_set[Cursor_Direction], steps: uint) {
 	MOVE_CURSOR_UP :: ansi.CSI + "%dA"
 	MOVE_CURSOR_DOWN :: ansi.CSI + "%dB"
 	MOVE_CURSOR_RIGHT :: ansi.CSI + "%dC"
 	MOVE_CURSOR_LEFT :: ansi.CSI + "%dD"
 
+	steps_y := steps % win.height
+	steps_x := steps % win.width
+
 	if .Up in dir {
-		strings.write_string(&screen.seq_builder, fmt.tprintf(MOVE_CURSOR_UP, steps))
+		strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_UP, steps_y))
 	}
 	if .Down in dir {
-		strings.write_string(&screen.seq_builder, fmt.tprintf(MOVE_CURSOR_DOWN, steps))
+		strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_DOWN, steps_y))
 	}
 	if .Left in dir {
-		strings.write_string(&screen.seq_builder, fmt.tprintf(MOVE_CURSOR_LEFT, steps))
+		strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_LEFT, steps_x))
 	}
 	if .Right in dir {
-		strings.write_string(&screen.seq_builder, fmt.tprintf(MOVE_CURSOR_RIGHT, steps))
+		strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_RIGHT, steps_x))
 	}
 }
 
 // Changes the cursor's absolute position
-move_cursor :: proc(screen: ^Screen, y, x: uint) {
+move_cursor :: proc(win: $T/^Window, y, x: uint) {
 	CURSOR_POSITION :: ansi.CSI + "%d;%dH"
-	// x and y are shifted by one position so that programmers can keep using 0 based indexing
-	strings.write_string(&screen.seq_builder, fmt.tprintf(CURSOR_POSITION, y + 1, x + 1))
+	resolved_y, resolved_x := resolve_window_coordinates(win, y, x)
+	strings.write_string(&win.seq_builder, fmt.tprintf(CURSOR_POSITION, resolved_y, resolved_x))
 }
 
 Text_Style :: enum {
@@ -95,7 +138,7 @@ hide_cursor :: proc(hide: bool) {
 	fmt.print(HIDE_CURSOR if hide else SHOW_CURSOR)
 }
 
-set_text_style :: proc(screen: ^Screen, styles: bit_set[Text_Style]) {
+set_text_style :: proc(win: $T/^Window, styles: bit_set[Text_Style]) {
 	SGR_BOLD :: ansi.CSI + ansi.BOLD + "m"
 	SGR_DIM :: ansi.CSI + ansi.FAINT + "m"
 	SGR_ITALIC :: ansi.CSI + ansi.ITALIC + "m"
@@ -103,12 +146,12 @@ set_text_style :: proc(screen: ^Screen, styles: bit_set[Text_Style]) {
 	SGR_INVERTED :: ansi.CSI + ansi.INVERT + "m"
 	SGR_CROSSED :: ansi.CSI + ansi.STRIKE + "m"
 
-	if .Bold in styles do strings.write_string(&screen.seq_builder, SGR_BOLD)
-	if .Dim in styles do strings.write_string(&screen.seq_builder, SGR_DIM)
-	if .Italic in styles do strings.write_string(&screen.seq_builder, SGR_ITALIC)
-	if .Underline in styles do strings.write_string(&screen.seq_builder, SGR_UNDERLINE)
-	if .Inverted in styles do strings.write_string(&screen.seq_builder, SGR_INVERTED)
-	if .Crossed in styles do strings.write_string(&screen.seq_builder, SGR_CROSSED)
+	if .Bold in styles do strings.write_string(&win.seq_builder, SGR_BOLD)
+	if .Dim in styles do strings.write_string(&win.seq_builder, SGR_DIM)
+	if .Italic in styles do strings.write_string(&win.seq_builder, SGR_ITALIC)
+	if .Underline in styles do strings.write_string(&win.seq_builder, SGR_UNDERLINE)
+	if .Inverted in styles do strings.write_string(&win.seq_builder, SGR_INVERTED)
+	if .Crossed in styles do strings.write_string(&win.seq_builder, SGR_CROSSED)
 }
 
 Color_8 :: enum {
@@ -123,7 +166,7 @@ Color_8 :: enum {
 }
 
 // Sets background and foreground colors based on the original 8 color palette
-set_color_style_8 :: proc(screen: ^Screen, fg: Maybe(Color_8), bg: Maybe(Color_8)) {
+set_color_style_8 :: proc(win: $T/^Window, fg: Maybe(Color_8), bg: Maybe(Color_8)) {
 	SGR_COLOR :: ansi.CSI + "%dm"
 
 	get_color_code :: proc(c: Color_8, is_bg: bool) -> uint {
@@ -152,11 +195,11 @@ set_color_style_8 :: proc(screen: ^Screen, fg: Maybe(Color_8), bg: Maybe(Color_8
 	}
 
 	strings.write_string(
-		&screen.seq_builder,
+		&win.seq_builder,
 		fmt.tprintf(SGR_COLOR, get_color_code(fg.?, false) if fg != nil else 39),
 	) // 39 == default foreground
 	strings.write_string(
-		&screen.seq_builder,
+		&win.seq_builder,
 		fmt.tprintf(SGR_COLOR, get_color_code(bg.?, true) if bg != nil else 49), // 49 == default background
 	)
 }
@@ -167,14 +210,14 @@ RGB_Color :: struct {
 
 // Sets background and foreground colors based on the RGB values.
 // The terminal has to support true colors for it to work.
-set_color_style_rgb :: proc(screen: ^Screen, fg: RGB_Color, bg: Maybe(RGB_Color)) {
+set_color_style_rgb :: proc(win: $T/^Window, fg: RGB_Color, bg: Maybe(RGB_Color)) {
 	RGB_FG_COLOR :: ansi.CSI + "38;2;%d;%d;%dm"
 	RGB_BG_COLOR :: ansi.CSI + "48;2;%d;%d;%dm"
 
-	strings.write_string(&screen.seq_builder, fmt.tprintf(RGB_FG_COLOR, fg.r, fg.g, fg.b))
+	strings.write_string(&win.seq_builder, fmt.tprintf(RGB_FG_COLOR, fg.r, fg.g, fg.b))
 	if bg != nil {
 		bg := bg.?
-		strings.write_string(&screen.seq_builder, fmt.tprintf(RGB_BG_COLOR, bg.r, bg.g, bg.b))
+		strings.write_string(&win.seq_builder, fmt.tprintf(RGB_BG_COLOR, bg.r, bg.g, bg.b))
 	}
 }
 
@@ -186,8 +229,8 @@ set_color_style :: proc {
 
 // Resets all styles previously set.
 // It is good practice to reset after being done with a style as to prevent styles to be applied erroneously.
-reset_styles :: proc(screen: ^Screen) {
-	strings.write_string(&screen.seq_builder, ansi.CSI + "0m")
+reset_styles :: proc(win: $T/^Window) {
+	strings.write_string(&win.seq_builder, ansi.CSI + "0m")
 }
 
 Clear_Mode :: enum {
@@ -197,26 +240,26 @@ Clear_Mode :: enum {
 }
 
 // Clears screen starting from current line.
-clear_screen :: proc(screen: ^Screen, mode: Clear_Mode) {
+clear :: proc(win: $T/^Window, mode: Clear_Mode) {
 	switch mode {
 	case .After_Cursor:
-		strings.write_string(&screen.seq_builder, ansi.CSI + "0J")
+		strings.write_string(&win.seq_builder, ansi.CSI + "0J")
 	case .Before_Cursor:
-		strings.write_string(&screen.seq_builder, ansi.CSI + "1J")
+		strings.write_string(&win.seq_builder, ansi.CSI + "1J")
 	case .Everything:
-		strings.write_string(&screen.seq_builder, ansi.CSI + "2J")
+		strings.write_string(&win.seq_builder, ansi.CSI + "2J")
 	}
 }
 
 // Only clears the line the cursor is in
-clear_line :: proc(screen: ^Screen, mode: Clear_Mode) {
+clear_line :: proc(win: $T/^Window, mode: Clear_Mode) {
 	switch mode {
 	case .After_Cursor:
-		strings.write_string(&screen.seq_builder, ansi.CSI + "0K")
+		strings.write_string(&win.seq_builder, ansi.CSI + "0K")
 	case .Before_Cursor:
-		strings.write_string(&screen.seq_builder, ansi.CSI + "1K")
+		strings.write_string(&win.seq_builder, ansi.CSI + "1K")
 	case .Everything:
-		strings.write_string(&screen.seq_builder, ansi.CSI + "2K")
+		strings.write_string(&win.seq_builder, ansi.CSI + "2K")
 	}
 }
 
@@ -226,13 +269,13 @@ ring_bell :: proc() {
 }
 
 // Writes a string to the terminal
-write_string :: proc(screen: ^Screen, str: string) {
-	strings.write_string(&screen.seq_builder, str)
+write_string :: proc(win: $T/^Window, str: string) {
+	strings.write_string(&win.seq_builder, str)
 }
 
 // Writes a rune to the terminal
-write_rune :: proc(screen: ^Screen, r: rune) {
-	strings.write_rune(&screen.seq_builder, r)
+write_rune :: proc(win: $T/^Window, r: rune) {
+	strings.write_rune(&win.seq_builder, r)
 }
 
 // Write to the terminal
@@ -242,8 +285,8 @@ write :: proc {
 }
 
 // Write a formatted string to the terminal
-writef :: proc(screen: ^Screen, format: string, args: ..any) {
-	fmt.sbprintf(&screen.seq_builder, format, ..args)
+writef :: proc(win: $T/^Window, format: string, args: ..any) {
+	fmt.sbprintf(&win.seq_builder, format, ..args)
 }
 
 Term_Mode :: enum {

@@ -233,14 +233,14 @@ main :: proc() {
 	defer t.destroy_screen(&s)
 	t.set_term_mode(&s, .Cbreak)
 	t.hide_cursor(true)
-	t.clear_screen(&s, .Everything)
-	t.blit_screen(&s)
+	t.clear(&s, .Everything)
+	t.blit(&s)
 
 	game := game_init(&s)
 	stopwatch: time.Stopwatch
 
 	for {
-		defer t.blit_screen(&s)
+		defer t.blit(&s)
 
 		if game_is_over(game, &s) {
 			t.move_cursor(&s, game.box.y + game.box.h + 5, 0)
@@ -250,7 +250,7 @@ main :: proc() {
 
 		time.stopwatch_start(&stopwatch)
 		defer time.stopwatch_reset(&stopwatch)
-		t.clear_screen(&s, .Everything)
+		t.clear(&s, .Everything)
 
 		input, _ := t.read(&s)
 		keys, kb_has_input := t.parse_keyboard_input(input)
