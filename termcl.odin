@@ -98,8 +98,8 @@ step_cursor :: proc(win: $T/^Window, dir: bit_set[Cursor_Direction], steps: uint
 	MOVE_CURSOR_RIGHT :: ansi.CSI + "%dC"
 	MOVE_CURSOR_LEFT :: ansi.CSI + "%dD"
 
-	steps_y := steps % win.height
-	steps_x := steps % win.width
+	steps_y := steps % win.height.?
+	steps_x := steps % win.width.?
 
 	if .Up in dir {
 		strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_UP, steps_y))
