@@ -98,20 +98,25 @@ step_cursor :: proc(win: $T/^Window, dir: bit_set[Cursor_Direction], steps: uint
 	MOVE_CURSOR_RIGHT :: ansi.CSI + "%dC"
 	MOVE_CURSOR_LEFT :: ansi.CSI + "%dD"
 
-	steps_y := steps % win.height.?
-	steps_x := steps % win.width.?
+	steps_y, y_ok := steps % win.height.?
+	steps_x, x_ok := steps % win.width.?
 
-	if .Up in dir {
-		strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_UP, steps_y))
+	if y_ok {
+		if .Up in dir {
+			strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_UP, steps_y))
+		}
+		if .Down in dir {
+			strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_DOWN, steps_y))
+		}
 	}
-	if .Down in dir {
-		strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_DOWN, steps_y))
-	}
-	if .Left in dir {
-		strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_LEFT, steps_x))
-	}
-	if .Right in dir {
-		strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_RIGHT, steps_x))
+	 
+	if x_ok {
+		if .Left in dir {
+			strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_LEFT, steps_x))
+		}
+		if .Right in dir {
+			strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_RIGHT, steps_x))
+		}
 	}
 }
 
