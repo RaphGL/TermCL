@@ -118,6 +118,10 @@ Input_Seq :: struct {
 
 // Parses the raw bytes sent by the terminal in `Input` and returns an input sequence
 // If there's no valid keyboard input, `has_input` is false
+//
+// Note: the terminal processes some inputs making them be treated the same so if you try to
+// parse an input and find that it's not being detected, check what value it is processed into.
+// Example: Escape might be Esc, Ctrl + [ and Ctrl + 3
 parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Input_Seq, has_input: bool) {
 	input := input
 	seq: Input_Seq
@@ -132,7 +136,7 @@ parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Input_Seq, has_in
 
 		if unicode.is_control(input_rune) {
 			switch input_rune {
-			case '\r', '\n', '\t':
+			case '\r', '\n', '\t', '\x1b':
 			case:
 				seq.mod = .Ctrl
 				input[0] += 64
