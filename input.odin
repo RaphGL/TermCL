@@ -136,7 +136,12 @@ parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Input_Seq, has_in
 
 		if unicode.is_control(input_rune) {
 			switch input_rune {
-			case '\r', '\n', '\t', '\x1b':
+			case '\r',
+			     '\n',
+			     '\b',
+			     127, /* backspace */
+			     '\t',
+			     '\x1b':
 			case:
 				seq.mod = .Ctrl
 				input[0] += 64

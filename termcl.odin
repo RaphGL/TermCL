@@ -109,7 +109,7 @@ step_cursor :: proc(win: $T/^Window, dir: bit_set[Cursor_Direction], steps: uint
 			strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_DOWN, steps_y))
 		}
 	}
-	 
+
 	if x_ok {
 		if .Left in dir {
 			strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_LEFT, steps_x))
