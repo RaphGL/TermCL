@@ -17,6 +17,7 @@ Window :: struct {
 	seq_builder:        strings.Builder,
 	y_offset, x_offset: uint,
 	width, height:      Maybe(uint),
+	cursor:             Cursor_Position,
 }
 
 init_window :: proc(y, x: uint, height, width: Maybe(uint)) -> Window {
@@ -70,61 +71,46 @@ Cursor_Direction :: enum {
 	Right,
 }
 
-resolve_window_coordinates :: proc(win: $T/^Window, y, x: uint) -> (resolved_y, resolved_x: uint) {
+// resolves coordinates from window coordinates to the global terminal coordinate
+resolve_coordinates :: proc(win: $T/^Window, y, x: uint) -> (resolved_y, resolved_x: uint) {
 	resolved_x = x
 	resolved_y = y
 
-	height, h_ok := win.height.?
-	width, w_ok := win.width.?
+	when type_of(win) == ^Screen {
+		term_size := get_term_size(win)
+		height := term_size.h
+		width := term_size.w
+	} else {
+		height, h_ok := win.height.?
+		width, w_ok := win.width.?
 
-	if w_ok && h_ok {
-		resolved_y = (y % height) + win.y_offset
-		resolved_x = (x % width) + win.x_offset
+		if !w_ok && !h_ok {
+			// this just makes the mod return the num passed to it
+			height = x + 1
+			width = y + 1
+		}
 	}
 
-	// x and y are shifted by one position so that programmers can keep using 0 based indexing
-	resolved_x += 1
-	resolved_y += 1
-
+	resolved_y = (y % height) + win.y_offset
+	resolved_x = (x % width) + win.x_offset
 	return
-}
-
-// Changes the cursor's position relative to the current position
-//
-// The steps will be applied in every direction set the `dir` bit_set
-step_cursor :: proc(win: $T/^Window, dir: bit_set[Cursor_Direction], steps: uint) {
-	MOVE_CURSOR_UP :: ansi.CSI + "%dA"
-	MOVE_CURSOR_DOWN :: ansi.CSI + "%dB"
-	MOVE_CURSOR_RIGHT :: ansi.CSI + "%dC"
-	MOVE_CURSOR_LEFT :: ansi.CSI + "%dD"
-
-	steps_y, y_ok := steps % win.height.?
-	steps_x, x_ok := steps % win.width.?
-
-	if y_ok {
-		if .Up in dir {
-			strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_UP, steps_y))
-		}
-		if .Down in dir {
-			strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_DOWN, steps_y))
-		}
-	}
-
-	if x_ok {
-		if .Left in dir {
-			strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_LEFT, steps_x))
-		}
-		if .Right in dir {
-			strings.write_string(&win.seq_builder, fmt.tprintf(MOVE_CURSOR_RIGHT, steps_x))
-		}
-	}
 }
 
 // Changes the cursor's absolute position
 move_cursor :: proc(win: $T/^Window, y, x: uint) {
 	CURSOR_POSITION :: ansi.CSI + "%d;%dH"
-	resolved_y, resolved_x := resolve_window_coordinates(win, y, x)
-	strings.write_string(&win.seq_builder, fmt.tprintf(CURSOR_POSITION, resolved_y, resolved_x))
+
+	win.cursor = {
+		x = x,
+		y = y,
+	}
+
+	resolved_y, resolved_x := resolve_coordinates(win, y, x)
+	// x and y are shifted by one position so that programmers can keep using 0 based indexing
+	strings.write_string(
+		&win.seq_builder,
+		fmt.tprintf(CURSOR_POSITION, resolved_y + 1, resolved_x + 1),
+	)
 }
 
 Text_Style :: enum {
@@ -273,13 +259,49 @@ ring_bell :: proc() {
 	fmt.print("\a")
 }
 
+// This is used internally to figure out where the cursor will be after a string is written to the terminal
+_update_cursor_pos_from_string :: proc(win: $T/^Window, str: string) {
+	calculate_cursor_pos :: proc(cursor: ^Cursor_Position, height, width: uint, str: string) {
+		for r in str {
+			if cursor.y >= height && r == '\n' {
+				cursor.x = 0
+				continue
+			}
+
+			if cursor.x >= width || r == '\n' {
+				cursor.y += 1
+				cursor.x = 0
+			} else {
+				cursor.x += 1
+			}
+
+		}
+	}
+
+	when type_of(win) == ^Screen {
+		term_size := get_term_size(win)
+		height := term_size.h
+		width := term_size.w
+		calculate_cursor_pos(&win.cursor, height, width, str)
+	} else {
+		height, h_ok := win.height.?
+		width, w_ok := win.width.?
+
+		if h_ok && w_ok {
+			calculate_cursor_pos(&win.cursor, height, width, str)
+		}
+	}
+}
+
 // Writes a string to the terminal
 write_string :: proc(win: $T/^Window, str: string) {
+	_update_cursor_pos_from_string(win, str)
 	strings.write_string(&win.seq_builder, str)
 }
 
 // Writes a rune to the terminal
 write_rune :: proc(win: $T/^Window, r: rune) {
+	_update_cursor_pos_from_string(win, string(r))
 	strings.write_rune(&win.seq_builder, r)
 }
 
@@ -291,7 +313,9 @@ write :: proc {
 
 // Write a formatted string to the terminal
 writef :: proc(win: $T/^Window, format: string, args: ..any) {
-	fmt.sbprintf(&win.seq_builder, format, ..args)
+	str_start := strings.builder_len(win.seq_builder)
+	str := fmt.sbprintf(&win.seq_builder, format, ..args)[str_start:]
+	_update_cursor_pos_from_string(win, str)
 }
 
 Term_Mode :: enum {
@@ -357,30 +381,34 @@ Cursor_Position :: struct {
 }
 
 // Get the current cursor position.
-get_cursor_position :: proc(screen: ^Screen) -> (pos: Cursor_Position, success: bool) {
-	fmt.print("\x1b[6n")
-	input, has_input := read(screen)
+get_cursor_position :: proc(win: $T/^Window) -> (pos: Cursor_Position, success: bool) {
+	if win.width == nil && win.height == nil {
+		fmt.print("\x1b[6n")
+		input, has_input := read(win)
 
-	if !has_input || len(input) < 6 {
-		return
+		if !has_input || len(input) < 6 {
+			return
+		}
+
+		if input[0] != '\x1b' && input[1] != '[' do return
+		if input[len(input) - 1] != 'R' do return
+		input_str := cast(string)input[2:len(input) - 1]
+
+		consumed: int
+		y, _ := strconv.parse_uint(input_str, n = &consumed)
+		input_str = input_str[consumed:]
+
+		if input_str[0] != ';' do return
+		input_str = input_str[1:]
+
+		x, _ := strconv.parse_uint(input_str, n = &consumed)
+		input_str = input_str[consumed:]
+
+		if len(input_str) != 0 do return
+
+		return Cursor_Position{x = x - 1, y = y - 1}, true
+	} else {
+		return win.cursor, true
 	}
-
-	if input[0] != '\x1b' && input[1] != '[' do return
-	if input[len(input) - 1] != 'R' do return
-	input_str := cast(string)input[2:len(input) - 1]
-
-	consumed: int
-	y, _ := strconv.parse_uint(input_str, n = &consumed)
-	input_str = input_str[consumed:]
-
-	if input_str[0] != ';' do return
-	input_str = input_str[1:]
-
-	x, _ := strconv.parse_uint(input_str, n = &consumed)
-	input_str = input_str[consumed:]
-
-	if len(input_str) != 0 do return
-
-	return Cursor_Position{x = x - 1, y = y - 1}, true
 }
 
