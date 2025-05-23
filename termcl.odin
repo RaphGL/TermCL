@@ -259,50 +259,93 @@ ring_bell :: proc() {
 	fmt.print("\a")
 }
 
-// This is used internally to figure out where the cursor will be after a string is written to the terminal
-_update_cursor_pos_from_string :: proc(win: $T/^Window, str: string) {
-	calculate_cursor_pos :: proc(cursor: ^Cursor_Position, height, width: uint, str: string) {
+// This is used internally to figure out and update where the cursor will be after a string is written to the terminal
+_get_cursor_pos_from_string :: proc(win: $T/^Window, str: string) -> [2]uint {
+	calculate_cursor_pos :: proc(
+		cursor: ^Cursor_Position,
+		height, width: uint,
+		str: string,
+	) -> [2]uint {
+		new_pos := [2]uint{cursor.x, cursor.y}
 		for r in str {
-			if cursor.y >= height && r == '\n' {
-				cursor.x = 0
+			if new_pos.y >= height && r == '\n' {
+				new_pos.x = 0
 				continue
 			}
 
-			if cursor.x >= width || r == '\n' {
-				cursor.y += 1
-				cursor.x = 0
+			if new_pos.x >= width || r == '\n' {
+				new_pos.y += 1
+				new_pos.x = 0
 			} else {
-				cursor.x += 1
+				new_pos.x += 1
 			}
-
 		}
+		return new_pos
 	}
 
 	when type_of(win) == ^Screen {
 		term_size := get_term_size(win)
 		height := term_size.h
 		width := term_size.w
-		calculate_cursor_pos(&win.cursor, height, width, str)
+		return calculate_cursor_pos(&win.cursor, height, width, str)
 	} else {
 		height, h_ok := win.height.?
 		width, w_ok := win.width.?
 
 		if h_ok && w_ok {
-			calculate_cursor_pos(&win.cursor, height, width, str)
+			return calculate_cursor_pos(&win.cursor, height, width, str)
+		} else {
+			return [2]uint{win.cursor.x, win.cursor.y}
 		}
 	}
 }
 
-// Writes a string to the terminal
-write_string :: proc(win: $T/^Window, str: string) {
-	_update_cursor_pos_from_string(win, str)
-	strings.write_string(&win.seq_builder, str)
-}
-
 // Writes a rune to the terminal
 write_rune :: proc(win: $T/^Window, r: rune) {
-	_update_cursor_pos_from_string(win, string(r))
+	r_bytes, r_len := utf8.encode_rune(r)
+	r_str := string(r_bytes[:r_len])
+	new_pos := _get_cursor_pos_from_string(win, r_str)
+	move_cursor(win, new_pos.y, new_pos.x)
 	strings.write_rune(&win.seq_builder, r)
+}
+
+// Writes a string to the terminal
+write_string :: proc(win: $T/^Window, str: string) {
+	when type_of(win) == ^Screen {
+		term_size := get_term_size(win)
+		win_width := term_size.w
+	} else {
+		win_width, w_ok := win.width.?
+	}
+
+	str_slice_start: uint
+	for str_slice_start < len(str) {
+		chunk_len := win_width - win.cursor.x
+		str_slice_end := str_slice_start + chunk_len
+		if str_slice_end > cast(uint)len(str) {
+			str_slice_end = len(str)
+		}
+
+		str_slice := str[str_slice_start:str_slice_end]
+		strings.write_string(&win.seq_builder, str_slice)
+
+		str_slice_start = str_slice_end
+
+		new_pos := _get_cursor_pos_from_string(win, str_slice)
+		win.cursor.x = new_pos.x
+		win.cursor.y = new_pos.y
+		// we try an empty string so that we can compute starting from the next character 
+		// that's going to be inserted
+		new_pos = _get_cursor_pos_from_string(win, " ")
+		move_cursor(win, new_pos.y, new_pos.x)
+	}
+}
+
+// Write a formatted string to the terminal
+writef :: proc(win: $T/^Window, format: string, args: ..any) {
+	str_start := strings.builder_len(win.seq_builder)
+	str := fmt.sbprintf(&win.seq_builder, format, ..args)[str_start:]
+	write_string(win, str)
 }
 
 // Write to the terminal
@@ -311,12 +354,6 @@ write :: proc {
 	write_rune,
 }
 
-// Write a formatted string to the terminal
-writef :: proc(win: $T/^Window, format: string, args: ..any) {
-	str_start := strings.builder_len(win.seq_builder)
-	str := fmt.sbprintf(&win.seq_builder, format, ..args)[str_start:]
-	_update_cursor_pos_from_string(win, str)
-}
 
 Term_Mode :: enum {
 	// Raw mode, prevents the terminal from preprocessing inputs
