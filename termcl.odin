@@ -6,6 +6,7 @@ import "core:fmt"
 import "core:os"
 import "core:strconv"
 import "core:strings"
+import "core:unicode/utf8"
 
 // Sends instructions to terminal
 blit :: proc(win: $T/^Window) {
@@ -62,13 +63,6 @@ init_screen :: proc(allocator := context.allocator) -> Screen {
 destroy_screen :: proc(screen: ^Screen) {
 	set_term_mode(screen, .Restored)
 	destroy_window(&screen.winbuf)
-}
-
-Cursor_Direction :: enum {
-	Up,
-	Down,
-	Left,
-	Right,
 }
 
 // resolves coordinates from window coordinates to the global terminal coordinate
@@ -232,13 +226,44 @@ Clear_Mode :: enum {
 
 // Clears screen starting from current line.
 clear :: proc(win: $T/^Window, mode: Clear_Mode) {
-	switch mode {
+	height, h_ok := win.height.?
+	width, w_ok := win.width.?
+
+	if !h_ok && !w_ok do switch mode {
 	case .After_Cursor:
 		strings.write_string(&win.seq_builder, ansi.CSI + "0J")
 	case .Before_Cursor:
 		strings.write_string(&win.seq_builder, ansi.CSI + "1J")
 	case .Everything:
 		strings.write_string(&win.seq_builder, ansi.CSI + "2J")
+	}
+	else {
+		// we compute the number of spaces required to clear a window and then
+		// let the write_rune function take care of properly moving the cursor
+		// through its own window isolation logic
+		space_num: uint
+		curr_pos := get_cursor_position(win)
+
+		switch mode {
+		case .After_Cursor:
+			space_in_same_line := width - (win.cursor.x + 1)
+			space_after_same_line := width * (height - ((win.cursor.y + 1) % height))
+			space_num = space_in_same_line + space_after_same_line
+			move_cursor(win, curr_pos.y, curr_pos.x + 1)
+		case .Before_Cursor:
+			space_num = win.cursor.x + 1 + win.cursor.y * width
+			move_cursor(win, 0, 0)
+		case .Everything:
+			move_cursor(win, 0, 0)
+			space_num = width * height
+		}
+
+		for i in 0 ..< space_num {
+			write_rune(win, ' ')
+		}
+
+		move_cursor(win, curr_pos.y, curr_pos.x)
+
 	}
 }
 
@@ -316,8 +341,14 @@ write_string :: proc(win: $T/^Window, str: string) {
 		win_width := term_size.w
 	} else {
 		win_width, w_ok := win.width.?
+		if !w_ok {
+			strings.write_string(&win.seq_builder, str)
+			return
+		}
 	}
 
+	// the string is written in chunks so that it doesn't overflow the  
+	// window in which it is contained
 	str_slice_start: uint
 	for str_slice_start < len(str) {
 		chunk_len := win_width - win.cursor.x
@@ -387,11 +418,11 @@ get_term_size :: proc(screen: ^Screen) -> Screen_Size {
 	win, ok := get_term_size_via_syscall()
 	if ok do return win
 
-	curr_pos, _ := get_cursor_position(screen)
+	curr_pos := get_cursor_position(screen)
 
 	MAX_CURSOR_POSITION :: ansi.CSI + "9999;9999H"
 	fmt.print(MAX_CURSOR_POSITION)
-	pos, _ := get_cursor_position(screen)
+	pos := get_cursor_position(screen)
 
 	// restore cursor position
 	fmt.printf(ansi.CSI + "%d;%dH", curr_pos.y, curr_pos.x)
@@ -418,34 +449,7 @@ Cursor_Position :: struct {
 }
 
 // Get the current cursor position.
-get_cursor_position :: proc(win: $T/^Window) -> (pos: Cursor_Position, success: bool) {
-	if win.width == nil && win.height == nil {
-		fmt.print("\x1b[6n")
-		input, has_input := read(win)
-
-		if !has_input || len(input) < 6 {
-			return
-		}
-
-		if input[0] != '\x1b' && input[1] != '[' do return
-		if input[len(input) - 1] != 'R' do return
-		input_str := cast(string)input[2:len(input) - 1]
-
-		consumed: int
-		y, _ := strconv.parse_uint(input_str, n = &consumed)
-		input_str = input_str[consumed:]
-
-		if input_str[0] != ';' do return
-		input_str = input_str[1:]
-
-		x, _ := strconv.parse_uint(input_str, n = &consumed)
-		input_str = input_str[consumed:]
-
-		if len(input_str) != 0 do return
-
-		return Cursor_Position{x = x - 1, y = y - 1}, true
-	} else {
-		return win.cursor, true
-	}
+get_cursor_position :: #force_inline proc(win: $T/^Window) -> Cursor_Position {
+	return win.cursor
 }
 
