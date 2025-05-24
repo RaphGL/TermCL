@@ -12,6 +12,7 @@ import "core:unicode/utf8"
 blit :: proc(win: $T/^Window) {
 	fmt.print(strings.to_string(win.seq_builder))
 	strings.builder_reset(&win.seq_builder)
+	os.flush(os.stdout)
 }
 
 Window :: struct {
@@ -235,7 +236,8 @@ clear :: proc(win: $T/^Window, mode: Clear_Mode) {
 	case .Before_Cursor:
 		strings.write_string(&win.seq_builder, ansi.CSI + "1J")
 	case .Everything:
-		strings.write_string(&win.seq_builder, ansi.CSI + "2J")
+		strings.write_string(&win.seq_builder, ansi.CSI + "H" + ansi.CSI + "2J")
+		win.cursor = {0, 0}
 	}
 	else {
 		// we compute the number of spaces required to clear a window and then
@@ -404,6 +406,10 @@ set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	change_terminal_mode(screen, mode)
 	enable_mouse(mode == .Raw || mode == .Cbreak)
 	hide_cursor(false)
+	// when changing modes some OSes (like windows) might put garbage that we don't care about 
+	// in stdin potentially causing nonblocking reads to block on the first read, so to avoid this,
+	// stdin is always flushed when the mode is changed
+	os.flush(os.stdin)
 }
 
 Screen_Size :: struct {
