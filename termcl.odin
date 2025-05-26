@@ -16,15 +16,20 @@ blit :: proc(win: $T/^Window) {
 }
 
 Window :: struct {
+	allocator:          runtime.Allocator,
 	seq_builder:        strings.Builder,
 	y_offset, x_offset: uint,
 	width, height:      Maybe(uint),
 	cursor:             Cursor_Position,
 }
 
-init_window :: proc(y, x: uint, height, width: Maybe(uint)) -> Window {
+init_window :: proc(
+	y, x: uint,
+	height, width: Maybe(uint),
+	allocator := context.allocator,
+) -> Window {
 	return Window {
-		seq_builder = strings.builder_make(),
+		seq_builder = strings.builder_make(allocator = allocator),
 		y_offset = y,
 		x_offset = x,
 		height = height,
@@ -39,7 +44,6 @@ destroy_window :: proc(win: ^Window) {
 // Screen is a special derivate of Window, so it can mostly be used anywhere a Window can be used
 Screen :: struct {
 	using winbuf:       Window,
-	allocator:          runtime.Allocator,
 	original_termstate: Terminal_State,
 	input_buf:          [512]byte,
 }
@@ -54,9 +58,8 @@ init_screen :: proc(allocator := context.allocator) -> Screen {
 	}
 
 	return Screen {
-		allocator = allocator,
 		original_termstate = termstate,
-		winbuf = init_window(0, 0, nil, nil),
+		winbuf = init_window(0, 0, nil, nil, allocator = allocator),
 	}
 }
 
@@ -376,8 +379,13 @@ write_string :: proc(win: $T/^Window, str: string) {
 
 // Write a formatted string to the terminal
 writef :: proc(win: $T/^Window, format: string, args: ..any) {
-	str_start := strings.builder_len(win.seq_builder)
-	str := fmt.sbprintf(&win.seq_builder, format, ..args)[str_start:]
+	str_builder: strings.Builder
+	_, err := strings.builder_init(&str_builder, allocator = win.allocator)
+	if err != nil {
+		panic("Failed to get more memory for format string")
+	}
+	defer strings.builder_destroy(&str_builder)
+	str := fmt.sbprintf(&str_builder, format, ..args)
 	write_string(win, str)
 }
 
