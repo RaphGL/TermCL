@@ -3,6 +3,7 @@ package termcl
 import "base:runtime"
 import "core:encoding/ansi"
 import "core:fmt"
+import "core:mem/virtual"
 import "core:os"
 import "core:strconv"
 import "core:strings"
@@ -13,6 +14,7 @@ blit :: proc(win: $T/^Window) {
 	fmt.print(strings.to_string(win.seq_builder))
 	strings.builder_reset(&win.seq_builder)
 	os.flush(os.stdout)
+	virtual.arena_free_all(&win.temp_arena)
 }
 
 Window :: struct {
@@ -21,6 +23,8 @@ Window :: struct {
 	y_offset, x_offset: uint,
 	width, height:      Maybe(uint),
 	cursor:             Cursor_Position,
+	// used to store the formatted escape codes and is freed on every `blit`
+	temp_arena:         virtual.Arena,
 }
 
 init_window :: proc(
@@ -28,17 +32,24 @@ init_window :: proc(
 	height, width: Maybe(uint),
 	allocator := context.allocator,
 ) -> Window {
+	arena: virtual.Arena
+	if virtual.arena_init_growing(&arena) != .None {
+		panic("Could not get enough memory to generate terminal escape codes with.")
+	}
+
 	return Window {
 		seq_builder = strings.builder_make(allocator = allocator),
 		y_offset = y,
 		x_offset = x,
 		height = height,
 		width = width,
+		temp_arena = arena,
 	}
 }
 
 destroy_window :: proc(win: ^Window) {
 	strings.builder_destroy(&win.seq_builder)
+	virtual.arena_destroy(&win.temp_arena)
 }
 
 // Screen is a special derivate of Window, so it can mostly be used anywhere a Window can be used
@@ -69,8 +80,8 @@ destroy_screen :: proc(screen: ^Screen) {
 	destroy_window(&screen.winbuf)
 }
 
-// resolves coordinates from window coordinates to the global terminal coordinate
-resolve_coordinates :: proc(win: $T/^Window, y, x: uint) -> (resolved_y, resolved_x: uint) {
+// converts coordinates from window coordinates to the global terminal coordinate
+global_coord_from_window :: proc(win: $T/^Window, y, x: uint) -> (resolved_y, resolved_x: uint) {
 	resolved_x = x
 	resolved_y = y
 
@@ -83,14 +94,41 @@ resolve_coordinates :: proc(win: $T/^Window, y, x: uint) -> (resolved_y, resolve
 		width, w_ok := win.width.?
 
 		if !w_ok && !h_ok {
-			// this just makes the mod return the num passed to it
-			height = x + 1
-			width = y + 1
+			return y, x
 		}
 	}
 
 	resolved_y = (y % height) + win.y_offset
 	resolved_x = (x % width) + win.x_offset
+	return
+}
+
+// converts coordinates from global coordinates to window coordinates
+window_coord_from_global :: proc(
+	win: ^Window,
+	y, x: uint,
+) -> (
+	resolved_y, resolved_x: uint,
+	ok: bool,
+) {
+	height, h_ok := win.height.?
+	width, w_ok := win.width.?
+
+	if !w_ok && !h_ok {
+		return
+	}
+
+	if y < win.y_offset || y >= win.y_offset + height {
+		return
+	}
+
+	if x < win.x_offset || x >= win.x_offset + width {
+		return
+	}
+
+	resolved_y = (y - win.y_offset) % height
+	resolved_x = (x - win.x_offset) % width
+	ok = true
 	return
 }
 
@@ -103,11 +141,12 @@ move_cursor :: proc(win: $T/^Window, y, x: uint) {
 		y = y,
 	}
 
-	resolved_y, resolved_x := resolve_coordinates(win, y, x)
+	resolved_y, resolved_x := global_coord_from_window(win, y, x)
+	temp_allocator := virtual.arena_allocator(&win.temp_arena)
 	// x and y are shifted by one position so that programmers can keep using 0 based indexing
 	strings.write_string(
 		&win.seq_builder,
-		fmt.tprintf(CURSOR_POSITION, resolved_y + 1, resolved_x + 1),
+		fmt.aprintf(CURSOR_POSITION, resolved_y + 1, resolved_x + 1, allocator = temp_allocator),
 	)
 }
 
@@ -183,13 +222,23 @@ set_color_style_8 :: proc(win: $T/^Window, fg: Maybe(Color_8), bg: Maybe(Color_8
 		return code
 	}
 
+	temp_allocator := virtual.arena_allocator(&win.temp_arena)
+
 	strings.write_string(
 		&win.seq_builder,
-		fmt.tprintf(SGR_COLOR, get_color_code(fg.?, false) if fg != nil else 39),
+		fmt.aprintf(
+			SGR_COLOR,
+			get_color_code(fg.?, false) if fg != nil else 39,
+			allocator = temp_allocator,
+		),
 	) // 39 == default foreground
 	strings.write_string(
 		&win.seq_builder,
-		fmt.tprintf(SGR_COLOR, get_color_code(bg.?, true) if bg != nil else 49), // 49 == default background
+		fmt.aprintf(
+			SGR_COLOR,
+			get_color_code(bg.?, true) if bg != nil else 49,
+			allocator = temp_allocator,
+		), // 49 == default background
 	)
 }
 
@@ -203,10 +252,19 @@ set_color_style_rgb :: proc(win: $T/^Window, fg: RGB_Color, bg: Maybe(RGB_Color)
 	RGB_FG_COLOR :: ansi.CSI + "38;2;%d;%d;%dm"
 	RGB_BG_COLOR :: ansi.CSI + "48;2;%d;%d;%dm"
 
-	strings.write_string(&win.seq_builder, fmt.tprintf(RGB_FG_COLOR, fg.r, fg.g, fg.b))
+	temp_allocator := virtual.arena_allocator(win.temp_arena)
+
+	strings.write_string(
+		&win.seq_builder,
+		fmt.aprintf(RGB_FG_COLOR, fg.r, fg.g, fg.b, allocator = temp_allocator),
+	)
+
 	if bg != nil {
 		bg := bg.?
-		strings.write_string(&win.seq_builder, fmt.tprintf(RGB_BG_COLOR, bg.r, bg.g, bg.b))
+		strings.write_string(
+			&win.seq_builder,
+			fmt.aprintf(RGB_BG_COLOR, bg.r, bg.g, bg.b, allocator = temp_allocator),
+		)
 	}
 }
 
