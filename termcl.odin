@@ -317,8 +317,8 @@ clear :: proc(win: $T/^Window, mode: Clear_Mode) {
 			space_num = win.cursor.x + 1 + win.cursor.y * width
 			move_cursor(win, 0, 0)
 		case .Everything:
+			space_num = (width + 1) * height
 			move_cursor(win, 0, 0)
-			space_num = width * height
 		}
 
 		for i in 0 ..< space_num {
@@ -390,11 +390,13 @@ _get_cursor_pos_from_string :: proc(win: $T/^Window, str: string) -> [2]uint {
 
 // Writes a rune to the terminal
 write_rune :: proc(win: $T/^Window, r: rune) {
+	strings.write_rune(&win.seq_builder, r)
+	// the new cursor position has to be calculated after writing the rune
+	// otherwise the rune will be misplaced when blitted to terminal
 	r_bytes, r_len := utf8.encode_rune(r)
 	r_str := string(r_bytes[:r_len])
 	new_pos := _get_cursor_pos_from_string(win, r_str)
 	move_cursor(win, new_pos.y, new_pos.x)
-	strings.write_rune(&win.seq_builder, r)
 }
 
 // Writes a string to the terminal
