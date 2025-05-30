@@ -15,7 +15,6 @@ blit :: proc(win: $T/^Window) {
 	fmt.print(strings.to_string(win.seq_builder))
 	strings.builder_reset(&win.seq_builder)
 	os.flush(os.stdout)
-	virtual.arena_free_all(&win.temp_arena)
 }
 
 Window :: struct {
@@ -24,8 +23,6 @@ Window :: struct {
 	y_offset, x_offset: uint,
 	width, height:      Maybe(uint),
 	cursor:             Cursor_Position,
-	// used to store the formatted escape codes and is freed on every `blit`
-	temp_arena:         virtual.Arena,
 }
 
 init_window :: proc(
@@ -33,24 +30,17 @@ init_window :: proc(
 	height, width: Maybe(uint),
 	allocator := context.allocator,
 ) -> Window {
-	arena: virtual.Arena
-	if virtual.arena_init_growing(&arena, reserved = 2 * mem.Kilobyte) != .None {
-		panic("Could not get enough memory to generate terminal escape codes with.")
-	}
-
 	return Window {
 		seq_builder = strings.builder_make(allocator = allocator),
 		y_offset = y,
 		x_offset = x,
 		height = height,
 		width = width,
-		temp_arena = arena,
 	}
 }
 
 destroy_window :: proc(win: ^Window) {
 	strings.builder_destroy(&win.seq_builder)
-	virtual.arena_destroy(&win.temp_arena)
 }
 
 // Screen is a special derivate of Window, so it can mostly be used anywhere a Window can be used
@@ -135,20 +125,19 @@ window_coord_from_global :: proc(
 
 // Changes the cursor's absolute position
 move_cursor :: proc(win: $T/^Window, y, x: uint) {
-	CURSOR_POSITION :: ansi.CSI + "%d;%dH"
-
 	win.cursor = {
 		x = x,
 		y = y,
 	}
 
 	resolved_y, resolved_x := global_coord_from_window(win, y, x)
-	temp_allocator := virtual.arena_allocator(&win.temp_arena)
+	CURSOR_POSITION :: ansi.CSI + "%d;%dH"
+	strings.write_string(&win.seq_builder, ansi.CSI)
 	// x and y are shifted by one position so that programmers can keep using 0 based indexing
-	strings.write_string(
-		&win.seq_builder,
-		fmt.aprintf(CURSOR_POSITION, resolved_y + 1, resolved_x + 1, allocator = temp_allocator),
-	)
+	strings.write_uint(&win.seq_builder, resolved_y + 1)
+	strings.write_rune(&win.seq_builder, ';')
+	strings.write_uint(&win.seq_builder, resolved_x + 1)
+	strings.write_rune(&win.seq_builder, 'H')
 }
 
 Text_Style :: enum {
@@ -196,8 +185,6 @@ Color_8 :: enum {
 
 // Sets background and foreground colors based on the original 8 color palette
 set_color_style_8 :: proc(win: $T/^Window, fg: Maybe(Color_8), bg: Maybe(Color_8)) {
-	SGR_COLOR :: ansi.CSI + "%dm"
-
 	get_color_code :: proc(c: Color_8, is_bg: bool) -> uint {
 		code: uint
 		switch c {
@@ -223,24 +210,17 @@ set_color_style_8 :: proc(win: $T/^Window, fg: Maybe(Color_8), bg: Maybe(Color_8
 		return code
 	}
 
-	temp_allocator := virtual.arena_allocator(&win.temp_arena)
+	SGR_COLOR :: ansi.CSI + "%dm"
+	set_color :: proc(builder: ^strings.Builder, color: uint) {
+		strings.write_string(ansi.CSI)
+		strings.write_uint(color)
+		strings.write_rune('m')
+	}
 
-	strings.write_string(
-		&win.seq_builder,
-		fmt.aprintf(
-			SGR_COLOR,
-			get_color_code(fg.?, false) if fg != nil else 39,
-			allocator = temp_allocator,
-		),
-	) // 39 == default foreground
-	strings.write_string(
-		&win.seq_builder,
-		fmt.aprintf(
-			SGR_COLOR,
-			get_color_code(bg.?, true) if bg != nil else 49,
-			allocator = temp_allocator,
-		), // 49 == default background
-	)
+	DEFAULT_FG :: 39
+	DEFAULT_BG :: 49
+	set_color(&win.seq_builder, get_color_code(fg.?, false) if fg != nil else DEFAULT_FG)
+	set_color(&win.seq_builder, get_color_code(bg.?, true) if bg != nil else DEFAULT_BG)
 }
 
 RGB_Color :: struct {
@@ -253,19 +233,23 @@ set_color_style_rgb :: proc(win: $T/^Window, fg: RGB_Color, bg: Maybe(RGB_Color)
 	RGB_FG_COLOR :: ansi.CSI + "38;2;%d;%d;%dm"
 	RGB_BG_COLOR :: ansi.CSI + "48;2;%d;%d;%dm"
 
-	temp_allocator := virtual.arena_allocator(win.temp_arena)
+	set_color :: proc(builder: ^strings.Builder, is_fg: bool, color: RGB_Color) {
+		strings.write_string(builder, ansi.CSI)
+		strings.write_uint(builder, 38 if is_fg else 48)
+		strings.write_string(builder, ";2;")
+		strings.write_uint(builder, cast(uint)color.r)
+		strings.write_rune(builder, ';')
+		strings.write_uint(builder, cast(uint)color.g)
+		strings.write_rune(builder, ';')
+		strings.write_uint(builder, cast(uint)color.b)
+		strings.write_rune(builder, 'm')
+	}
 
-	strings.write_string(
-		&win.seq_builder,
-		fmt.aprintf(RGB_FG_COLOR, fg.r, fg.g, fg.b, allocator = temp_allocator),
-	)
+	set_color(&win.seq_builder, true, fg)
 
 	if bg != nil {
 		bg := bg.?
-		strings.write_string(
-			&win.seq_builder,
-			fmt.aprintf(RGB_BG_COLOR, bg.r, bg.g, bg.b, allocator = temp_allocator),
-		)
+		set_color(&win.seq_builder, false, bg)
 	}
 }
 
