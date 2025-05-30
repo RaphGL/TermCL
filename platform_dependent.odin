@@ -233,3 +233,4 @@ read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 
 	return
 }
+

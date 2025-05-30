@@ -7,57 +7,52 @@ Brush :: struct {
 	size:  uint,
 }
 
-PAINT_BUFFER_WIDTH :: 100
-PAINT_BUFFER_HEIGHT :: 40
+PAINT_BUFFER_WIDTH :: 80
+PAINT_BUFFER_HEIGHT :: 30
 
 Paint_Buffer :: struct {
-	x, y:   uint,
 	buffer: [PAINT_BUFFER_HEIGHT][PAINT_BUFFER_WIDTH]Maybe(t.Color_8),
+	screen: ^t.Screen,
+	window: t.Window,
 }
 
-paint_buffer_to_screen :: proc(pbuf: Paint_Buffer, s: ^t.Screen) {
-	defer t.reset_styles(s)
+paint_buffer_init :: proc(s: ^t.Screen) -> Paint_Buffer {
+	return Paint_Buffer {
+		window = t.init_window(0, 0, PAINT_BUFFER_HEIGHT, PAINT_BUFFER_WIDTH),
+		screen = s,
+	}
+}
+
+paint_buffer_destroy :: proc(pbuf: ^Paint_Buffer) {
+	t.destroy_window(&pbuf.window)
+}
+
+paint_buffer_to_screen :: proc(pbuf: ^Paint_Buffer) {
+	termsize := t.get_term_size(pbuf.screen)
+	pbuf.window.x_offset = termsize.w / 2 - PAINT_BUFFER_WIDTH / 2
+	pbuf.window.y_offset = termsize.h / 2 - PAINT_BUFFER_HEIGHT / 2
+
+	t.set_color_style_8(&pbuf.window, .White, .White)
+	t.clear(&pbuf.window, .Everything)
+
+	defer {
+		t.reset_styles(&pbuf.window)
+		t.blit(&pbuf.window)
+	}
 
 	for y in 0 ..< PAINT_BUFFER_HEIGHT {
 		for x in 0 ..< PAINT_BUFFER_WIDTH {
-			if y == PAINT_BUFFER_HEIGHT - 1 || y == 0 || x == 0 || x == PAINT_BUFFER_WIDTH - 1 {
-				computed_x := uint(x) + pbuf.x
-				computed_y := uint(y) + pbuf.y
-				if y == 0 do computed_y -= 1
-				if y == PAINT_BUFFER_HEIGHT - 1 do computed_y += 1
-				if x == 0 do computed_x -= 1
-				if x == PAINT_BUFFER_WIDTH - 1 do computed_x += 1
-
-				t.move_cursor(s, computed_y, computed_x)
-				t.set_color_style_8(s, .Black, .Black)
-				t.write(s, ' ')
-			}
-
-			t.move_cursor(s, uint(y) + pbuf.y, uint(x) + pbuf.x)
+			t.move_cursor(&pbuf.window, uint(y), uint(x))
 			color := pbuf.buffer[y][x]
-			t.set_color_style_8(s, color, color)
-			t.write(s, ' ')
+			if color == nil do continue
+			t.set_color_style_8(&pbuf.window, color, color)
+			t.write(&pbuf.window, ' ')
 		}
 	}
 }
 
-paint_buffer_set_cell :: proc(
-	s: ^t.Screen,
-	pbuf: ^Paint_Buffer,
-	y, x: uint,
-	color: Maybe(t.Color_8),
-) {
-	y_max := PAINT_BUFFER_HEIGHT + pbuf.y
-	x_max := PAINT_BUFFER_WIDTH + pbuf.x
-
-	if (y < pbuf.y || y >= y_max) || (x < pbuf.x || x >= x_max) {
-		return
-	}
-
-	computed_y := y - pbuf.y
-	computed_x := x - pbuf.x
-
-	pbuf.buffer[computed_y][computed_x] = color
+paint_buffer_set_cell :: proc(pbuf: ^Paint_Buffer, y, x: uint, color: Maybe(t.Color_8)) {
+	pbuf.buffer[y][x] = color
 }
 
 main :: proc() {
@@ -66,55 +61,58 @@ main :: proc() {
 	t.set_term_mode(&s, .Raw)
 	t.hide_cursor(true)
 
-	brush := Brush {
-		color = .White,
-		size  = 1,
-	}
+	t.clear(&s, .Everything)
+	t.blit(&s)
 
-	pbuf: Paint_Buffer
+	pbuf := paint_buffer_init(&s)
+	defer paint_buffer_destroy(&pbuf)
 
 	for {
-		t.clear(&s, .Everything)
-		defer t.blit(&s)
-		defer paint_buffer_to_screen(pbuf, &s)
+		defer {
+			t.blit(&s)
+			paint_buffer_to_screen(&pbuf)
+		}
 
 		termsize := t.get_term_size(&s)
 
-		if termsize.w <= PAINT_BUFFER_WIDTH && termsize.w <= PAINT_BUFFER_WIDTH {
+		help_msg := "Draw (Right Click) / Delete (Left Click) / Quit (Q or CTRL + C)"
+		t.move_cursor(&s, termsize.h - 2, termsize.w / 2 - len(help_msg) / 2)
+		t.write(&s, help_msg)
+
+		if termsize.w <= PAINT_BUFFER_WIDTH || termsize.w <= PAINT_BUFFER_WIDTH {
 			t.clear(&s, .Everything)
 			size_small_msg := "Size is too small, increase size to continue or press 'q' to exit"
 			t.move_cursor(&s, termsize.h / 2, termsize.w / 2 - len(size_small_msg) / 2)
 			t.write(&s, size_small_msg)
-			t.blit(&s)
+			continue
 		}
 
-		pbuf.x = termsize.w / 2 - PAINT_BUFFER_WIDTH / 2
-		pbuf.y = termsize.h / 2 - PAINT_BUFFER_HEIGHT / 2
 
-		help_msg := "Draw (Right Click) / Delete (Left Click)"
-		t.move_cursor(&s, termsize.h - 2, termsize.w / 2 - len(help_msg) / 2)
-		t.write(&s, help_msg)
-
-		input, _ := t.read(&s)
-
-		mouse, has_input := t.parse_mouse_input(input)
-		if has_input {
-			#partial switch mouse.key {
-			case .Left:
-				if mouse.mod == nil && .Pressed in mouse.event {
-					paint_buffer_set_cell(&s, &pbuf, mouse.coord.y, mouse.coord.x, brush.color)
-				}
-			case .Right:
-				if mouse.mod == nil && .Pressed in mouse.event {
-					paint_buffer_set_cell(&s, &pbuf, mouse.coord.y, mouse.coord.x, nil)
-				}
-			}
-		}
+		input := t.read(&s) or_continue
 
 		keyboard, kb_has_input := t.parse_keyboard_input(input)
 		if kb_has_input && (keyboard.mod == .Ctrl && keyboard.key == .C) || keyboard.key == .Q {
 			break
 		}
+
+		mouse := t.parse_mouse_input(input) or_continue
+		win_y, win_x := t.window_coord_from_global(
+			&pbuf.window,
+			mouse.coord.y,
+			mouse.coord.x,
+		) or_continue
+
+		#partial switch mouse.key {
+		case .Left:
+			if mouse.mod == nil && .Pressed in mouse.event {
+				paint_buffer_set_cell(&pbuf, win_y, win_x, .Black)
+			}
+		case .Right:
+			if mouse.mod == nil && .Pressed in mouse.event {
+				paint_buffer_set_cell(&pbuf, win_y, win_x, nil)
+			}
+		}
+
 	}
 }
 
