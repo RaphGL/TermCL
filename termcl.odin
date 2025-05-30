@@ -212,9 +212,9 @@ set_color_style_8 :: proc(win: $T/^Window, fg: Maybe(Color_8), bg: Maybe(Color_8
 
 	SGR_COLOR :: ansi.CSI + "%dm"
 	set_color :: proc(builder: ^strings.Builder, color: uint) {
-		strings.write_string(ansi.CSI)
-		strings.write_uint(color)
-		strings.write_rune('m')
+		strings.write_string(builder, ansi.CSI)
+		strings.write_uint(builder, color)
+		strings.write_rune(builder, 'm')
 	}
 
 	DEFAULT_FG :: 39
