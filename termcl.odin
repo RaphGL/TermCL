@@ -3,6 +3,7 @@ package termcl
 import "base:runtime"
 import "core:encoding/ansi"
 import "core:fmt"
+import "core:mem"
 import "core:mem/virtual"
 import "core:os"
 import "core:strconv"
@@ -33,7 +34,7 @@ init_window :: proc(
 	allocator := context.allocator,
 ) -> Window {
 	arena: virtual.Arena
-	if virtual.arena_init_growing(&arena) != .None {
+	if virtual.arena_init_growing(&arena, reserved = 2 * mem.Kilobyte) != .None {
 		panic("Could not get enough memory to generate terminal escape codes with.")
 	}
 
