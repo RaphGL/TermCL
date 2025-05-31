@@ -69,6 +69,7 @@ init_screen :: proc(allocator := context.allocator) -> Screen {
 destroy_screen :: proc(screen: ^Screen) {
 	set_term_mode(screen, .Restored)
 	destroy_window(&screen.winbuf)
+    fmt.print("\x1b[?1049l")
 }
 
 // converts coordinates from window coordinates to the global terminal coordinate
@@ -457,7 +458,19 @@ Term_Mode :: enum {
 // Changing the terminal mode will your program to process every input.
 set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	change_terminal_mode(screen, mode)
-	enable_mouse(mode == .Raw || mode == .Cbreak)
+
+    #partial switch mode {
+    case .Restored:
+        // enables main screen buffer
+        fmt.print("\x1b[?1049l")
+        enable_mouse(false)
+
+    case:
+        // enables alternate screen buffer
+        fmt.print("\x1b[?1049h")
+        enable_mouse(true)
+    }
+
 	hide_cursor(false)
 	// when changing modes some OSes (like windows) might put garbage that we don't care about 
 	// in stdin potentially causing nonblocking reads to block on the first read, so to avoid this,
