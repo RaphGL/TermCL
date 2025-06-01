@@ -69,7 +69,7 @@ init_screen :: proc(allocator := context.allocator) -> Screen {
 destroy_screen :: proc(screen: ^Screen) {
 	set_term_mode(screen, .Restored)
 	destroy_window(&screen.winbuf)
-    fmt.print("\x1b[?1049l")
+	fmt.print("\x1b[?1049l")
 }
 
 // converts coordinates from window coordinates to the global terminal coordinate
@@ -230,7 +230,7 @@ RGB_Color :: struct {
 
 // Sets background and foreground colors based on the RGB values.
 // The terminal has to support true colors for it to work.
-set_color_style_rgb :: proc(win: $T/^Window, fg: RGB_Color, bg: Maybe(RGB_Color)) {
+set_color_style_rgb :: proc(win: $T/^Window, fg: Maybe(RGB_Color), bg: Maybe(RGB_Color)) {
 	RGB_FG_COLOR :: ansi.CSI + "38;2;%d;%d;%dm"
 	RGB_BG_COLOR :: ansi.CSI + "48;2;%d;%d;%dm"
 
@@ -246,12 +246,16 @@ set_color_style_rgb :: proc(win: $T/^Window, fg: RGB_Color, bg: Maybe(RGB_Color)
 		strings.write_rune(builder, 'm')
 	}
 
-	set_color(&win.seq_builder, true, fg)
+	fg_color, has_fg := fg.?
+	bg_color, has_bg := bg.?
 
-	if bg != nil {
-		bg := bg.?
-		set_color(&win.seq_builder, false, bg)
+	if !has_fg || !has_bg {
+		set_color_style_8(win, nil, nil)
 	}
+
+	if has_fg do set_color(&win.seq_builder, true, fg_color)
+	if has_bg do set_color(&win.seq_builder, false, bg)
+
 }
 
 // Sets foreground and background colors
@@ -459,17 +463,17 @@ Term_Mode :: enum {
 set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	change_terminal_mode(screen, mode)
 
-    #partial switch mode {
-    case .Restored:
-        // enables main screen buffer
-        fmt.print("\x1b[?1049l")
-        enable_mouse(false)
+	#partial switch mode {
+	case .Restored:
+		// enables main screen buffer
+		fmt.print("\x1b[?1049l")
+		enable_mouse(false)
 
-    case:
-        // enables alternate screen buffer
-        fmt.print("\x1b[?1049h")
-        enable_mouse(true)
-    }
+	case:
+		// enables alternate screen buffer
+		fmt.print("\x1b[?1049h")
+		enable_mouse(true)
+	}
 
 	hide_cursor(false)
 	// when changing modes some OSes (like windows) might put garbage that we don't care about 
