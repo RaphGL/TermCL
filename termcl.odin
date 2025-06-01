@@ -254,7 +254,7 @@ set_color_style_rgb :: proc(win: $T/^Window, fg: Maybe(RGB_Color), bg: Maybe(RGB
 	}
 
 	if has_fg do set_color(&win.seq_builder, true, fg_color)
-	if has_bg do set_color(&win.seq_builder, false, bg)
+	if has_bg do set_color(&win.seq_builder, false, bg_color)
 
 }
 
