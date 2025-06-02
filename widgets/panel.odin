@@ -40,6 +40,8 @@ panel_destroy :: proc(panel: ^Panel) {
 }
 
 panel_blit :: proc(panel: ^Panel) {
+	// sadly this is the only way I found to allow either RGB or 8 color palette colors
+	// without having to make the user cast into union types
 	if panel.fg_color != nil && panel.bg_color != nil {
 		fg_rgb, has_fg_rgb := panel.fg_color.(t.RGB_Color)
 		bg_rgb, has_bg_rgb := panel.bg_color.(t.RGB_Color)
@@ -73,6 +75,9 @@ panel_blit :: proc(panel: ^Panel) {
 	}
 
 	t.move_cursor(&panel.window, 0, 1)
+	center_items := make([dynamic]Panel_Item)
+	defer delete(center_items)
+
 	drawing_panel: for item in panel.items {
 		switch item.position {
 		case .None:
@@ -91,8 +96,23 @@ panel_blit :: proc(panel: ^Panel) {
 			t.write(&panel.window, item.content)
 
 		case .Center:
-		// todo
+			append(&center_items, item)
 		}
+	}
+
+	// the space in between each item will always be num_of_items - 1
+	center_items_width: uint = (len(center_items) - 1) * panel.space_between
+	for item in center_items {
+		center_items_width += len(item.content)
+	}
+
+	panel_width := panel.window.width.?
+	t.move_cursor(&panel.window, 0, panel_width / 2 - center_items_width / 2)
+	for item in center_items {
+		t.write(&panel.window, item.content)
+		cursor_pos := t.get_cursor_position(&panel.window)
+		cursor_pos.x += panel.space_between
+		t.move_cursor(&panel.window, cursor_pos.y, cursor_pos.x)
 	}
 
 	t.reset_styles(&panel.window)
