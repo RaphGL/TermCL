@@ -96,7 +96,7 @@ main :: proc() {
 		}
 
 		mouse := t.parse_mouse_input(input) or_continue
-		win_y, win_x := t.window_coord_from_global(
+		win_cursor := t.window_coord_from_global(
 			&pbuf.window,
 			mouse.coord.y,
 			mouse.coord.x,
@@ -105,11 +105,11 @@ main :: proc() {
 		#partial switch mouse.key {
 		case .Left:
 			if mouse.mod == nil && .Pressed in mouse.event {
-				paint_buffer_set_cell(&pbuf, win_y, win_x, .Black)
+				paint_buffer_set_cell(&pbuf, win_cursor.y, win_cursor.x, .Black)
 			}
 		case .Right:
 			if mouse.mod == nil && .Pressed in mouse.event {
-				paint_buffer_set_cell(&pbuf, win_y, win_x, nil)
+				paint_buffer_set_cell(&pbuf, win_cursor.y, win_cursor.x, nil)
 			}
 		}
 
