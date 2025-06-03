@@ -475,9 +475,7 @@ Mouse_Input :: struct {
 	event: bit_set[Mouse_Event],
 	mod:   bit_set[Mod],
 	key:   Mouse_Key,
-	coord: struct {
-		x, y: uint,
-	},
+	coord: Cursor_Position,
 }
 
 // Parses the raw bytes sent by the terminal in `Input` and returns an input sequence

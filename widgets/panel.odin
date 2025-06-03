@@ -14,67 +14,51 @@ Panel_Item :: struct {
 	content:  string,
 }
 
-Panel_Color :: union {
-	t.RGB_Color,
-	t.Color_8,
-}
-
 Panel :: struct {
-	window:        t.Window,
+	_screen:       ^t.Screen,
+	_window:       t.Window,
 	items:         []Panel_Item,
-	bg_color:      Panel_Color,
-	fg_color:      Panel_Color,
+	bg_color:      Any_Color,
+	fg_color:      Any_Color,
 	space_between: uint,
 }
 
 panel_init :: proc(screen: ^t.Screen, space_between: uint) -> Panel {
 	termsize := t.get_term_size(screen)
 	return Panel {
-		window = t.init_window(termsize.h - 1, 0, 1, termsize.w),
+		_screen = screen,
+		_window = t.init_window(0, 0, 1, 0),
 		space_between = space_between,
 	}
 }
 
+_panel_set_layout :: proc(panel: ^Panel) {
+	termsize := t.get_term_size(panel._screen)
+	panel._window.y_offset = termsize.h
+	panel._window.width = termsize.w
+}
+
 panel_destroy :: proc(panel: ^Panel) {
-	t.destroy_window(&panel.window)
+	t.destroy_window(&panel._window)
 }
 
 panel_blit :: proc(panel: ^Panel) {
-	// sadly this is the only way I found to allow either RGB or 8 color palette colors
-	// without having to make the user cast into union types
-	if panel.fg_color != nil && panel.bg_color != nil {
-		fg_rgb, has_fg_rgb := panel.fg_color.(t.RGB_Color)
-		bg_rgb, has_bg_rgb := panel.bg_color.(t.RGB_Color)
+	_panel_set_layout(panel)
 
-		fg_8, has_fg_8 := panel.fg_color.(t.Color_8)
-		bg_8, has_bg_8 := panel.bg_color.(t.Color_8)
-
-		if (has_fg_8 || has_bg_8) && (has_fg_rgb || has_bg_rgb) {
-			panic("both fg and bg have to be the same color type or nil")
-		}
-
-		if has_fg_8 || has_bg_8 {
-			t.set_color_style(&panel.window, fg_8, bg_8)
-		}
-
-		if has_fg_rgb || has_bg_rgb {
-			t.set_color_style(&panel.window, fg_rgb, bg_rgb)
-		}
-
-	}
-
-	t.clear(&panel.window, .Everything)
+	defer t.reset_styles(&panel._window)
+	set_any_color_style(&panel._window, panel.fg_color, panel.bg_color)
+	t.clear(&panel._window, .Everything)
 
 	cursor_on_left := t.Cursor_Position {
 		x = 1,
 		y = 0,
 	}
 	cursor_on_right := t.Cursor_Position {
-		x = panel.window.width.? - 1,
+		x = panel._window.width.? - 1,
 		y = 0,
 	}
 
-	t.move_cursor(&panel.window, 0, 1)
+	t.move_cursor(&panel._window, 0, 1)
 	center_items := make([dynamic]Panel_Item)
 	defer delete(center_items)
 
@@ -84,16 +68,16 @@ panel_blit :: proc(panel: ^Panel) {
 			continue drawing_panel
 
 		case .Left:
-			t.move_cursor(&panel.window, cursor_on_left.y, cursor_on_left.x)
-			t.write(&panel.window, item.content)
-			cursor_pos := t.get_cursor_position(&panel.window)
+			t.move_cursor(&panel._window, cursor_on_left.y, cursor_on_left.x)
+			t.write(&panel._window, item.content)
+			cursor_pos := t.get_cursor_position(&panel._window)
 			cursor_pos.x += panel.space_between
 			cursor_on_left = cursor_pos
 
 		case .Right:
-			t.move_cursor(&panel.window, cursor_on_right.y, cursor_on_right.x - len(item.content))
+			t.move_cursor(&panel._window, cursor_on_right.y, cursor_on_right.x - len(item.content))
 			cursor_on_right.x -= len(item.content) + panel.space_between
-			t.write(&panel.window, item.content)
+			t.write(&panel._window, item.content)
 
 		case .Center:
 			append(&center_items, item)
@@ -106,16 +90,15 @@ panel_blit :: proc(panel: ^Panel) {
 		center_items_width += len(item.content)
 	}
 
-	panel_width := panel.window.width.?
-	t.move_cursor(&panel.window, 0, panel_width / 2 - center_items_width / 2)
+	panel_width := panel._window.width.?
+	t.move_cursor(&panel._window, 0, panel_width / 2 - center_items_width / 2)
 	for item in center_items {
-		t.write(&panel.window, item.content)
-		cursor_pos := t.get_cursor_position(&panel.window)
+		t.write(&panel._window, item.content)
+		cursor_pos := t.get_cursor_position(&panel._window)
 		cursor_pos.x += panel.space_between
-		t.move_cursor(&panel.window, cursor_pos.y, cursor_pos.x)
+		t.move_cursor(&panel._window, cursor_pos.y, cursor_pos.x)
 	}
 
-	t.reset_styles(&panel.window)
-	t.blit(&panel.window)
+	t.blit(&panel._window)
 }
 

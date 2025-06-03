@@ -25,6 +25,8 @@ Window :: struct {
 	cursor:             Cursor_Position,
 }
 
+// you should never init a window with size zero unless you're going to assign the sizes later.
+// using a window with width and height of zero will result in a division by zero
 init_window :: proc(
 	y, x: uint,
 	height, width: Maybe(uint),
@@ -73,9 +75,11 @@ destroy_screen :: proc(screen: ^Screen) {
 }
 
 // converts coordinates from window coordinates to the global terminal coordinate
-global_coord_from_window :: proc(win: $T/^Window, y, x: uint) -> (resolved_y, resolved_x: uint) {
-	resolved_x = x
-	resolved_y = y
+global_coord_from_window :: proc(win: $T/^Window, y, x: uint) -> Cursor_Position {
+	cursor_pos := Cursor_Position {
+		x = x,
+		y = y,
+	}
 
 	when type_of(win) == ^Screen {
 		term_size := get_term_size(win)
@@ -86,13 +90,13 @@ global_coord_from_window :: proc(win: $T/^Window, y, x: uint) -> (resolved_y, re
 		width, w_ok := win.width.?
 
 		if !w_ok && !h_ok {
-			return y, x
+			return cursor_pos
 		}
 	}
 
-	resolved_y = (y % height) + win.y_offset
-	resolved_x = (x % width) + win.x_offset
-	return
+	cursor_pos.y = (y % height) + win.y_offset
+	cursor_pos.x = (x % width) + win.x_offset
+	return cursor_pos
 }
 
 // converts coordinates from global coordinates to window coordinates
@@ -100,8 +104,8 @@ window_coord_from_global :: proc(
 	win: ^Window,
 	y, x: uint,
 ) -> (
-	resolved_y, resolved_x: uint,
-	ok: bool,
+	cursor_pos: Cursor_Position,
+	in_window: bool,
 ) {
 	height, h_ok := win.height.?
 	width, w_ok := win.width.?
@@ -118,9 +122,9 @@ window_coord_from_global :: proc(
 		return
 	}
 
-	resolved_y = (y - win.y_offset) % height
-	resolved_x = (x - win.x_offset) % width
-	ok = true
+	cursor_pos.y = (y - win.y_offset) % height
+	cursor_pos.x = (x - win.x_offset) % width
+	in_window = true
 	return
 }
 
@@ -131,13 +135,13 @@ move_cursor :: proc(win: $T/^Window, y, x: uint) {
 		y = y,
 	}
 
-	resolved_y, resolved_x := global_coord_from_window(win, y, x)
+	global_cursor_pos := global_coord_from_window(win, y, x)
 	CURSOR_POSITION :: ansi.CSI + "%d;%dH"
 	strings.write_string(&win.seq_builder, ansi.CSI)
 	// x and y are shifted by one position so that programmers can keep using 0 based indexing
-	strings.write_uint(&win.seq_builder, resolved_y + 1)
+	strings.write_uint(&win.seq_builder, global_cursor_pos.y + 1)
 	strings.write_rune(&win.seq_builder, ';')
-	strings.write_uint(&win.seq_builder, resolved_x + 1)
+	strings.write_uint(&win.seq_builder, global_cursor_pos.x + 1)
 	strings.write_rune(&win.seq_builder, 'H')
 }
 
