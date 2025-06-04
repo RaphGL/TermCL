@@ -14,21 +14,24 @@ Panel_Item :: struct {
 	content:  string,
 }
 
-Panel :: struct {
-	_screen:       ^t.Screen,
-	_window:       t.Window,
-	items:         []Panel_Item,
-	bg_color:      Any_Color,
-	fg_color:      Any_Color,
+Panel_Style :: struct {
+	fg, bg:        Any_Color,
 	space_between: uint,
 }
 
-panel_init :: proc(screen: ^t.Screen, space_between: uint) -> Panel {
+Panel :: struct {
+	_screen: ^t.Screen,
+	_window: t.Window,
+	items:   []Panel_Item,
+	style:   Panel_Style,
+}
+
+panel_init :: proc(screen: ^t.Screen) -> Panel {
 	termsize := t.get_term_size(screen)
 	return Panel {
 		_screen = screen,
 		_window = t.init_window(0, 0, 1, 0),
-		space_between = space_between,
+		style = {space_between = 2, fg = .Black, bg = .White},
 	}
 }
 
@@ -46,7 +49,7 @@ panel_blit :: proc(panel: ^Panel) {
 	_panel_set_layout(panel)
 
 	defer t.reset_styles(&panel._window)
-	set_any_color_style(&panel._window, panel.fg_color, panel.bg_color)
+	set_any_color_style(&panel._window, panel.style.fg, panel.style.bg)
 	t.clear(&panel._window, .Everything)
 
 	cursor_on_left := t.Cursor_Position {
@@ -71,12 +74,12 @@ panel_blit :: proc(panel: ^Panel) {
 			t.move_cursor(&panel._window, cursor_on_left.y, cursor_on_left.x)
 			t.write(&panel._window, item.content)
 			cursor_pos := t.get_cursor_position(&panel._window)
-			cursor_pos.x += panel.space_between
+			cursor_pos.x += panel.style.space_between
 			cursor_on_left = cursor_pos
 
 		case .Right:
 			t.move_cursor(&panel._window, cursor_on_right.y, cursor_on_right.x - len(item.content))
-			cursor_on_right.x -= len(item.content) + panel.space_between
+			cursor_on_right.x -= len(item.content) + panel.style.space_between
 			t.write(&panel._window, item.content)
 
 		case .Center:
@@ -85,7 +88,7 @@ panel_blit :: proc(panel: ^Panel) {
 	}
 
 	// the space in between each item will always be num_of_items - 1
-	center_items_width: uint = (len(center_items) - 1) * panel.space_between
+	center_items_width: uint = (len(center_items) - 1) * panel.style.space_between
 	for item in center_items {
 		center_items_width += len(item.content)
 	}
@@ -95,7 +98,7 @@ panel_blit :: proc(panel: ^Panel) {
 	for item in center_items {
 		t.write(&panel._window, item.content)
 		cursor_pos := t.get_cursor_position(&panel._window)
-		cursor_pos.x += panel.space_between
+		cursor_pos.x += panel.style.space_between
 		t.move_cursor(&panel._window, cursor_pos.y, cursor_pos.x)
 	}
 

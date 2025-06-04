@@ -2,16 +2,20 @@ package widgets
 
 import t ".."
 
-Button :: struct {
-	_screen:       ^t.Screen,
-	_window:       t.Window,
-	_content_box:  t.Window,
-	content:       string,
+Button_Style :: struct {
 	bg, fg:        Any_Color,
-	text_style:    bit_set[t.Text_Style],
+	text:          bit_set[t.Text_Style],
 	padding:       uint,
 	width, height: Maybe(uint),
 	y, x:          uint,
+}
+
+Button :: struct {
+	_screen:      ^t.Screen,
+	_window:      t.Window,
+	_content_box: t.Window,
+	content:      string,
+	style:        Button_Style,
 }
 
 button_init :: proc(screen: ^t.Screen) -> Button {
@@ -28,15 +32,15 @@ button_destroy :: proc(btn: ^Button) {
 }
 
 _button_set_layout :: proc(btn: ^Button) {
-	btn._window.width = btn.width
-	btn._window.height = btn.height
-	btn._window.x_offset = btn.x
-	btn._window.y_offset = btn.y
+	btn._window.width = btn.style.width
+	btn._window.height = btn.style.height
+	btn._window.x_offset = btn.style.x
+	btn._window.y_offset = btn.style.y
 
-	y_padding := btn.padding * 2
-	x_padding := btn.padding * 4
+	y_padding := btn.style.padding * 2
+	x_padding := btn.style.padding * 4
 
-	if btn.height == nil {
+	if btn.style.height == nil {
 		btn._window.height = y_padding + 1
 		btn._content_box.height = 1
 	} else {
@@ -45,7 +49,7 @@ _button_set_layout :: proc(btn: ^Button) {
 	box_y_padding_to_center := (btn._window.height.? - btn._content_box.height.?) / 2
 	btn._content_box.y_offset = btn._window.y_offset + box_y_padding_to_center
 
-	if btn.width == nil {
+	if btn.style.width == nil {
 		// for width padding is doubled because cursor bar is taller than it is wider
 		btn._window.width = x_padding + len(btn.content)
 		btn._content_box.width = cast(uint)len(btn.content)
@@ -74,11 +78,11 @@ button_blit :: proc(btn: ^Button) {
 		t.blit(&btn._content_box)
 	}
 
-	set_any_color_style(&btn._window, btn.fg, btn.bg)
-	t.set_text_style(&btn._window, btn.text_style)
+	set_any_color_style(&btn._window, btn.style.fg, btn.style.bg)
+	t.set_text_style(&btn._window, btn.style.text)
 
-	set_any_color_style(&btn._content_box, btn.fg, btn.bg)
-	t.set_text_style(&btn._content_box, btn.text_style)
+	set_any_color_style(&btn._content_box, btn.style.fg, btn.style.bg)
+	t.set_text_style(&btn._content_box, btn.style.text)
 
 	t.clear(&btn._window, .Everything)
 	t.move_cursor(&btn._content_box, 0, 0)
