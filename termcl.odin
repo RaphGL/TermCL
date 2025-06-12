@@ -1,13 +1,13 @@
 package termcl
 
 import "base:runtime"
-import "core:encoding/ansi"
 import "core:fmt"
 import "core:mem"
 import "core:mem/virtual"
 import "core:os"
 import "core:strconv"
 import "core:strings"
+import "core:terminal/ansi"
 import "core:unicode/utf8"
 
 // Sends instructions to terminal
