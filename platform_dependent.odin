@@ -198,9 +198,11 @@ syscall_ioctl :: #force_inline proc "contextless" (fd: c.int, request: u32, arg:
 	)
 }
 
-// Reads input from the terminal.
-// The read blocks execution until a value is read.
-// If you want it to not block, use `read` instead.
+/*
+Reads input from the terminal.
+The read blocks execution until a value is read.  
+If you want it to not block, use `read` instead.
+*/
 read_blocking :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
 	if err != nil {
@@ -212,21 +214,25 @@ read_blocking :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 }
 
 
-// Reads input from the terminal
-// Reading is nonblocking, if you want it to block, use `read_blocking`
-//
-// The Input returned is a slice of bytes returned from the terminal.
-// If you want to read a single character, you could just handle it directly without
-// having to parse the input.
-//
-// example:
-// ```odin
-// input := read(&screen)
-// if len(input) == 1 do switch input[0] {
-//   case 'a':
-//   case 'b':
-// }
-// ```
+/*
+Reads input from the terminal
+Reading is nonblocking, if you want it to block, use `read_blocking`
+
+**Returns:
+A slice of bytes.
+
+Note: If you want to read a single character, you could just handle it directly by
+just reading from the slice:
+```odin
+input := read(&screen)
+if len(input) == 1 do switch input[0] {
+  case 'a':
+  case 'b': 
+}
+```
+
+Or you can use the helper procs `parse_keyboard_input` and `parse_mouse_input`.
+*/
 read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 	when ODIN_OS in VALID_POSIX_OSES {
 		stdin_pollfd := posix.pollfd {

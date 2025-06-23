@@ -111,20 +111,30 @@ Mod :: enum {
 	Shift,
 }
 
-Input_Seq :: struct {
+Keyboard_Input :: struct {
 	mod: Mod,
 	key: Key,
 }
 
-// Parses the raw bytes sent by the terminal in `Input` and returns an input sequence
-// If there's no valid keyboard input, `has_input` is false
-//
-// Note: the terminal processes some inputs making them be treated the same so if you try to
-// parse an input and find that it's not being detected, check what value it is processed into.
-// Example: Escape might be Esc, Ctrl + [ and Ctrl + 3
-parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Input_Seq, has_input: bool) {
+/*
+Parses the raw bytes sent by the terminal in `Input`.
+
+**Inputs**
+- `input`: bytes received from terminal stdin
+
+**Returns**
+- `keyboard_input`: parsed keyboard input
+- `has_input`: true if has input
+
+Note: the terminal processes some inputs making them be treated the same
+so if you're checking for a certain input and it's never true,
+check what value it is processed into.
+
+For example, `.Escape` is either Esc, Ctrl + [ and Ctrl + 3 to the terminal.
+*/
+parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Keyboard_Input, has_input: bool) {
 	input := input
-	seq: Input_Seq
+	seq: Keyboard_Input
 
 	if len(input) == 0 do return
 
@@ -478,8 +488,16 @@ Mouse_Input :: struct {
 	coord: Cursor_Position,
 }
 
-// Parses the raw bytes sent by the terminal in `Input` and returns an input sequence
-// If there's no valid mouse input, `has_input` is false
+/*
+Parses the raw bytes sent by the terminal in `Input`
+
+**Returns**
+- `mouse_input`: parsed mouse input
+- `has_input`: true there was valid mouse input
+
+Note: mouse input is not always guaranteed. The user might be running the program from
+a tty or the terminal emulator might just not support mouse input.
+*/
 parse_mouse_input :: proc(input: Input) -> (mouse_input: Mouse_Input, has_input: bool) {
 	if len(input) < 6 do return
 

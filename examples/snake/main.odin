@@ -109,7 +109,7 @@ box_draw :: proc(game: Game, s: ^t.Screen) {
 	t.reset_styles(s)
 }
 
-snake_handle_input :: proc(s: ^t.Screen, game: ^Game, input: t.Input_Seq) {
+snake_handle_input :: proc(s: ^t.Screen, game: ^Game, input: t.Keyboard_Input) {
 	snake := &game.snake
 	box := &game.box
 
