@@ -1,10 +1,12 @@
 package termcl
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:c"
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:sys/darwin"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:sys/windows"
@@ -31,7 +33,8 @@ when ODIN_OS in VALID_POSIX_OSES {
 		output_mode:     windows.DWORD,
 	}
 } else {
-	Terminal_State :: struct {}
+	Terminal_State :: struct {
+	}
 }
 
 @(private)
@@ -158,9 +161,41 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 		}
 
 		return screen_size, true
+	} else when ODIN_OS == .Darwin {
+		winsize :: struct {
+			ws_row, ws_col:       c.ushort,
+			ws_xpixel, ws_ypixel: c.ushort,
+		}
+
+		// number copied from https://github.com/clap-rs/term_size-rs/blob/5889fdc589d267182cc946faa24e0e3166a70000/src/platform/unix.rs#L16
+		TIOCGWINSZ :: 0x40087468
+
+		w: winsize
+		if syscall_ioctl(1, TIOCGWINSZ, &w) != 0 do return {}, false
+
+		win := Screen_Size {
+			h = uint(w.ws_row),
+			w = uint(w.ws_col),
+		}
+
+		return win, true
+
 	} else {
 		return {}, false
 	}
+}
+
+@(private = "file")
+// ioctl call is missing in sys/darwin/xnu_system_call_wrappers.odin
+syscall_ioctl :: #force_inline proc "contextless" (fd: c.int, request: u32, arg: rawptr) -> c.int {
+	return(
+		cast(c.int)intrinsics.syscall(
+			darwin.unix_offset_syscall(.ioctl),
+			uintptr(fd),
+			uintptr(request),
+			uintptr(arg),
+		) \
+	)
 }
 
 /*
@@ -239,4 +274,3 @@ read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 
 	return
 }
-
