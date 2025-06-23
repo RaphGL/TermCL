@@ -10,13 +10,29 @@ import "core:strings"
 import "core:terminal/ansi"
 import "core:unicode/utf8"
 
-// Sends instructions to terminal
+/*
+Sends instructions to terminal
+
+**Inputs**
+- `win`: A pointer to a window 
+
+*/
 blit :: proc(win: $T/^Window) {
 	fmt.print(strings.to_string(win.seq_builder))
 	strings.builder_reset(&win.seq_builder)
 	os.flush(os.stdout)
 }
 
+/*
+A bounded "drawing" box in the terminal.
+
+**Fields**
+- `allocator`: the allocator used by the window 
+- `seq_builder`: where the escape sequences are stored
+- `x_offset`, `y_offset`: offsets from (0, 0) coordinates of the terminal
+- `width`, `height`: sizes for the window
+- `cursor`: where the cursor was last when this window was interacted with 
+*/
 Window :: struct {
 	allocator:          runtime.Allocator,
 	seq_builder:        strings.Builder,
@@ -25,8 +41,20 @@ Window :: struct {
 	cursor:             Cursor_Position,
 }
 
-// you should never init a window with size zero unless you're going to assign the sizes later.
-// using a window with width and height of zero will result in a division by zero
+/*
+Initialize a window.
+
+**Inputs**
+- `x`, `y`: offsets from (0, 0) coordinates of the terminal
+- `height`, `width`: size of the window
+
+**Returns**
+Initialized window. Window is freed with `destroy_window`
+
+Note:
+You should never init a window with size zero unless you're going to assign the sizes later.
+using a window with width and height of zero will result in a division by zero.
+*/
 init_window :: proc(
 	y, x: uint,
 	height, width: Maybe(uint),
@@ -41,18 +69,30 @@ init_window :: proc(
 	}
 }
 
+/*
+Destroys all memory allocated by the window
+*/
 destroy_window :: proc(win: ^Window) {
 	strings.builder_destroy(&win.seq_builder)
 }
 
-// Screen is a special derivate of Window, so it can mostly be used anywhere a Window can be used
+/*
+Screen is a window for the entire terminal screen. It is a superset of `Window` and can be used anywhere a window can.
+*/
 Screen :: struct {
 	using winbuf:       Window,
 	original_termstate: Terminal_State,
 	input_buf:          [512]byte,
 }
 
-// Initializes screen and saves terminal state
+/*
+Initializes the terminal screen and creates a backup of the state the terminal
+was in when this function was called.
+
+Note: A screen **OUGHT** to be destroyed before exitting the program.
+Destroying the screen causes the terminal to be restored to its previous state.
+If the state is not restored your terminal might start misbehaving.
+*/
 init_screen :: proc(allocator := context.allocator) -> Screen {
 	context.allocator = allocator
 
@@ -67,14 +107,18 @@ init_screen :: proc(allocator := context.allocator) -> Screen {
 	}
 }
 
-// Restores terminal settings and does necessary memory cleanup
+/*
+Restores the terminal to its original state and frees all memory allocated by the `Screen`
+*/
 destroy_screen :: proc(screen: ^Screen) {
 	set_term_mode(screen, .Restored)
 	destroy_window(&screen.winbuf)
 	fmt.print("\x1b[?1049l")
 }
 
-// converts coordinates from window coordinates to the global terminal coordinate
+/*
+Converts window coordinates to the global terminal coordinates
+*/
 global_coord_from_window :: proc(win: $T/^Window, y, x: uint) -> Cursor_Position {
 	cursor_pos := Cursor_Position {
 		x = x,
@@ -99,7 +143,9 @@ global_coord_from_window :: proc(win: $T/^Window, y, x: uint) -> Cursor_Position
 	return cursor_pos
 }
 
-// converts coordinates from global coordinates to window coordinates
+/*
+Converts from global coordinates to window coordinates
+*/
 window_coord_from_global :: proc(
 	win: ^Window,
 	y, x: uint,
@@ -128,7 +174,9 @@ window_coord_from_global :: proc(
 	return
 }
 
-// Changes the cursor's absolute position
+/*
+Changes the position of the window cursor
+*/
 move_cursor :: proc(win: $T/^Window, y, x: uint) {
 	win.cursor = {
 		x = x,
@@ -154,13 +202,24 @@ Text_Style :: enum {
 	Dim,
 }
 
-// Hides the terminal cursor
+/*
+Hides the cursor so that it's not showed in the terminal
+*/
 hide_cursor :: proc(hide: bool) {
 	SHOW_CURSOR :: ansi.CSI + "?25h"
 	HIDE_CURSOR :: ansi.CSI + "?25l"
 	fmt.print(HIDE_CURSOR if hide else SHOW_CURSOR)
 }
 
+/*
+Sets the style used by the window.
+
+**Inputs**
+- `win`: the window whose text style will be changed
+- `styles`: the styles that will be applied
+
+Note: It is good practice to `reset_styles` when the styles are not needed anymore.
+*/
 set_text_style :: proc(win: $T/^Window, styles: bit_set[Text_Style]) {
 	SGR_BOLD :: ansi.CSI + ansi.BOLD + "m"
 	SGR_DIM :: ansi.CSI + ansi.FAINT + "m"
@@ -177,6 +236,10 @@ set_text_style :: proc(win: $T/^Window, styles: bit_set[Text_Style]) {
 	if .Crossed in styles do strings.write_string(&win.seq_builder, SGR_CROSSED)
 }
 
+/*
+Colors from the original 8-color palette.
+These should be supported everywhere this library is supported.
+*/
 Color_8 :: enum {
 	Black,
 	Red,
@@ -188,7 +251,14 @@ Color_8 :: enum {
 	White,
 }
 
-// Sets background and foreground colors based on the original 8 color palette
+/*
+Sets background and foreground colors based on the original 8-color palette
+
+**Inputs**
+- `win`: the window that will use the colors set
+- `fg`: the foreground color, if the color is nil the default foreground color will be used 
+- `bg`: the background color, if the color is nil the default background color will be used 
+*/
 set_color_style_8 :: proc(win: $T/^Window, fg: Maybe(Color_8), bg: Maybe(Color_8)) {
 	get_color_code :: proc(c: Color_8, is_bg: bool) -> uint {
 		code: uint
@@ -228,12 +298,24 @@ set_color_style_8 :: proc(win: $T/^Window, fg: Maybe(Color_8), bg: Maybe(Color_8
 	set_color(&win.seq_builder, get_color_code(bg.?, true) if bg != nil else DEFAULT_BG)
 }
 
+/*
+RGB color. This is should be supported by every modern terminal.
+In case you need to support an older terminals, use `Color_8` instead
+*/
 RGB_Color :: struct {
 	r, g, b: u8,
 }
 
-// Sets background and foreground colors based on the RGB values.
-// The terminal has to support true colors for it to work.
+/*
+Sets background and foreground colors based on the RGB values.
+
+**Inputs**
+- `win`: the window that will use the colors set
+- `fg`: the foreground color, if the color is nil the default foreground color will be used 
+- `bg`: the background color, if the color is nil the default background color will be used 
+
+Note: The terminal has to support true colors for it to work.
+*/
 set_color_style_rgb :: proc(win: $T/^Window, fg: Maybe(RGB_Color), bg: Maybe(RGB_Color)) {
 	RGB_FG_COLOR :: ansi.CSI + "38;2;%d;%d;%dm"
 	RGB_BG_COLOR :: ansi.CSI + "48;2;%d;%d;%dm"
@@ -262,25 +344,49 @@ set_color_style_rgb :: proc(win: $T/^Window, fg: Maybe(RGB_Color), bg: Maybe(RGB
 
 }
 
-// Sets foreground and background colors
+/*
+Sets background and foreground colors.
+
+**Inputs**
+- `win`: the window that will use the colors set
+- `fg`: the foreground color, if the color is nil the default foreground color will be used 
+- `bg`: the background color, if the color is nil the default background color will be used 
+*/
 set_color_style :: proc {
 	set_color_style_8,
 	set_color_style_rgb,
 }
 
-// Resets all styles previously set.
-// It is good practice to reset after being done with a style as to prevent styles to be applied erroneously.
+/*
+Resets all styles previously set.
+It is good practice to reset after being done with a style as to prevent styles to be applied erroneously.
+
+**Inputs**
+- `win`: the window whose styles will be reset
+*/
 reset_styles :: proc(win: $T/^Window) {
 	strings.write_string(&win.seq_builder, ansi.CSI + "0m")
 }
 
+/*
+Indicates how to clear the window. 
+*/
 Clear_Mode :: enum {
+	// Clear everything before the cursor
 	Before_Cursor,
+	// Clear everything after the cursor
 	After_Cursor,
+	// Clear the whole screen/window
 	Everything,
 }
 
-// Clears screen starting from current line.
+/*
+Clear the screen.
+
+**Inputs**
+- `win`: the window whose contents will be cleared
+- `mode`: how the clearing will be done
+*/
 clear :: proc(win: $T/^Window, mode: Clear_Mode) {
 	height, h_ok := win.height.?
 	width, w_ok := win.width.?
@@ -324,7 +430,13 @@ clear :: proc(win: $T/^Window, mode: Clear_Mode) {
 	}
 }
 
-// Only clears the line the cursor is in
+/*
+Clear the current line the cursor is in.
+
+**Inputs**
+- `win`: the window whose current line will be cleared
+- `mode`: how the window will be cleared
+*/
 clear_line :: proc(win: $T/^Window, mode: Clear_Mode) {
 	switch mode {
 	case .After_Cursor:
@@ -336,7 +448,11 @@ clear_line :: proc(win: $T/^Window, mode: Clear_Mode) {
 	}
 }
 
-// Ring terminal bell. (potentially annoying to users :P)
+/*
+Ring the terminal bell. (potentially annoying to users :P)
+
+Note: this rings the bell as soon as this procedure is called.
+*/
 ring_bell :: proc() {
 	fmt.print("\a")
 }
@@ -382,7 +498,9 @@ _get_cursor_pos_from_string :: proc(win: $T/^Window, str: string) -> [2]uint {
 	}
 }
 
-// Writes a rune to the terminal
+/*
+Writes a rune to the terminal
+*/
 write_rune :: proc(win: $T/^Window, r: rune) {
 	strings.write_rune(&win.seq_builder, r)
 	// the new cursor position has to be calculated after writing the rune
@@ -393,7 +511,9 @@ write_rune :: proc(win: $T/^Window, r: rune) {
 	move_cursor(win, new_pos.y, new_pos.x)
 }
 
-// Writes a string to the terminal
+/*
+Writes a string to the terminal
+*/
 write_string :: proc(win: $T/^Window, str: string) {
 	when type_of(win) == ^Screen {
 		term_size := get_term_size(win)
@@ -431,7 +551,9 @@ write_string :: proc(win: $T/^Window, str: string) {
 	}
 }
 
-// Write a formatted string to the terminal
+/*
+Write a formatted string to the window.
+*/
 writef :: proc(win: $T/^Window, format: string, args: ..any) {
 	str_builder: strings.Builder
 	_, err := strings.builder_init(&str_builder, allocator = win.allocator)
@@ -443,27 +565,36 @@ writef :: proc(win: $T/^Window, format: string, args: ..any) {
 	write_string(win, str)
 }
 
-// Write to the terminal
+/*
+Write to the window.
+*/
 write :: proc {
 	write_string,
 	write_rune,
 }
 
 
+// A terminal mode. This changes how the terminal will preprocess inputs and handle signals.
 Term_Mode :: enum {
-	// Raw mode, prevents the terminal from preprocessing inputs
+	// Raw mode, prevents the terminal from preprocessing inputs and handling signals
 	Raw,
-	// Restores the mode the terminal was in before program started
+	// Restores the terminal to the state it was in before program started
 	Restored,
-	// A sort of "soft" raw mode that allows interrupts to still work
+	// A sort of "soft" raw mode that still allows the terminal to handle signals
 	Cbreak,
 }
 
-// Change terminal mode.
-// 
-// This changes how the terminal processes inputs.
-// By default the terminal will process inputs, preventing you to have full access to user input.
-// Changing the terminal mode will your program to process every input.
+/*
+Change terminal mode.
+
+This changes how the terminal behaves.
+By default the terminal will preprocess inputs and handle handle signals,
+preventing you to have full access to user input.
+
+**Inputs**
+- `screen`: the terminal screen
+- `mode`: how terminal should behave from now on
+*/
 set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	change_terminal_mode(screen, mode)
 
@@ -490,10 +621,16 @@ Screen_Size :: struct {
 	h, w: uint,
 }
 
-// Get the terminal screen size.
-//
-// The width and height are measured in number of cells not pixels.
-// Aka the same value you use with `move_mouse` and other functions.
+/*
+Get the terminal screen size.
+
+**Inputs**
+- `screen`: the terminal screen
+
+**Returns**
+The screen size, where both the width and height are measured
+by the number of terminal cells.
+*/
 get_term_size :: proc(screen: ^Screen) -> Screen_Size {
 	win, ok := get_term_size_via_syscall()
 	if ok do return win
@@ -510,9 +647,11 @@ get_term_size :: proc(screen: ^Screen) -> Screen_Size {
 	return Screen_Size{w = pos.x, h = pos.y}
 }
 
-// Enable mouse to be able to respond to mouse inputs.
-// 
-// It's enabled by default. This is here so you can opt-out of it or control when to enable or disable it.
+/*
+Enable mouse to be able to respond to mouse inputs.
+
+Note: Mouse is enabled by default if you're in raw mode.
+*/
 enable_mouse :: proc(enable: bool) {
 	ANY_EVENT :: "\x1b[?1003"
 	SGR_MOUSE :: "\x1b[?1006"
@@ -528,7 +667,9 @@ Cursor_Position :: struct {
 	y, x: uint,
 }
 
-// Get the current cursor position.
+/*
+Get the current cursor position.
+*/
 get_cursor_position :: #force_inline proc(win: $T/^Window) -> Cursor_Position {
 	return win.cursor
 }
