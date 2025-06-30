@@ -18,6 +18,9 @@ Sends instructions to terminal
 
 */
 blit :: proc(win: $T/^Window) {
+	if win.height == 0 || win.width == 0 {
+		return
+	}
 	fmt.print(strings.to_string(win.seq_builder))
 	strings.builder_reset(&win.seq_builder)
 	os.flush(os.stdout)
@@ -138,6 +141,10 @@ global_coord_from_window :: proc(win: $T/^Window, y, x: uint) -> Cursor_Position
 		}
 	}
 
+	if width == 0 || height == 0 {
+		return {}
+	}
+
 	cursor_pos.y = (y % height) + win.y_offset
 	cursor_pos.x = (x % width) + win.x_offset
 	return cursor_pos
@@ -156,7 +163,7 @@ window_coord_from_global :: proc(
 	height, h_ok := win.height.?
 	width, w_ok := win.width.?
 
-	if !w_ok && !h_ok {
+	if !w_ok && !h_ok && (height == 0 || width == 0) {
 		return
 	}
 
@@ -534,6 +541,10 @@ write_string :: proc(win: $T/^Window, str: string) {
 		str_slice_end := str_slice_start + chunk_len
 		if str_slice_end > cast(uint)len(str) {
 			str_slice_end = len(str)
+		}
+
+		if str_slice_end == str_slice_start {
+			break
 		}
 
 		str_slice := str[str_slice_start:str_slice_end]
