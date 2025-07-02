@@ -506,8 +506,10 @@ Parses the raw bytes sent by the terminal in `Input`
 
 Note: mouse input is not always guaranteed. The user might be running the program from
 a tty or the terminal emulator might just not support mouse input.
+
 */
 parse_mouse_input :: proc(input: Input) -> (mouse_input: Mouse_Input, has_input: bool) {
+	// the mouse input we support is SGR escape code based
 	if len(input) < 6 do return
 
 	if input[0] != '\x1b' && input[1] != '[' && input[2] != '<' do return
@@ -532,10 +534,6 @@ parse_mouse_input :: proc(input: Input) -> (mouse_input: Mouse_Input, has_input:
 	y_coord, _ := strconv.parse_uint(input, n = &consumed)
 	input = input[consumed:]
 
-	mouse_event: bit_set[Mouse_Event]
-	if input[0] == 'm' do mouse_event |= {.Released}
-	if input[0] == 'M' do mouse_event |= {.Pressed}
-
 	mouse_key: Mouse_Key
 	low_two_bits := mod & 0b11
 	switch low_two_bits {
@@ -545,6 +543,12 @@ parse_mouse_input :: proc(input: Input) -> (mouse_input: Mouse_Input, has_input:
 		mouse_key = .Middle
 	case 2:
 		mouse_key = .Right
+	}
+
+	mouse_event: bit_set[Mouse_Event]
+	if mouse_key != .None {
+		if input[0] == 'm' do mouse_event |= {.Released}
+		if input[0] == 'M' do mouse_event |= {.Pressed}
 	}
 
 	next_three_bits := mod & 0b11100
