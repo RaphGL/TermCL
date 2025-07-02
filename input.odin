@@ -102,6 +102,9 @@ Key :: enum {
 	Pipe,
 	At,
 	Tilde,
+	Less_Than,
+	Greater_Than,
+	Question_Mark,
 }
 
 Mod :: enum {
@@ -301,6 +304,12 @@ parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Keyboard_Input, h
 			seq.key = .At
 		case '~':
 			seq.key = .Tilde
+		case '<':
+			seq.key = .Less_Than
+		case '>':
+			seq.key = .Greater_Than
+		case '?':
+			seq.key = .Question_Mark
 		case:
 			return
 		}
