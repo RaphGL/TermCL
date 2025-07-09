@@ -1,11 +1,26 @@
 package termcl
 
-import "core:fmt"
-import "core:os"
 import "core:strconv"
 import "core:unicode"
+import "core:fmt"
+import "core:os"
 
 Input :: distinct []byte
+
+/*
+Reads input from the terminal.
+The read blocks execution until a value is read.  
+If you want it to not block, use `read` instead.
+*/
+read_blocking :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
+	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
+	if err != nil {
+		fmt.eprintln("failing to get user input")
+		os.exit(1)
+	}
+
+	return Input(screen.input_buf[:bytes_read]), bytes_read > 0
+}
 
 Key :: enum {
 	None,

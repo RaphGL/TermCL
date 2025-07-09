@@ -2,10 +2,7 @@ package termcl
 
 import "base:runtime"
 import "core:fmt"
-import "core:mem"
-import "core:mem/virtual"
 import "core:os"
-import "core:strconv"
 import "core:strings"
 import "core:terminal/ansi"
 import "core:unicode/utf8"
@@ -428,7 +425,7 @@ clear :: proc(win: $T/^Window, mode: Clear_Mode) {
 			move_cursor(win, 0, 0)
 		}
 
-		for i in 0 ..< space_num {
+		for _ in 0 ..< space_num {
 			write_rune(win, ' ')
 		}
 
