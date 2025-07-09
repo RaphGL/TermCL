@@ -5,20 +5,12 @@ import "core:c"
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:sys/darwin"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:sys/windows"
 
-VALID_POSIX_OSES :: bit_set[runtime.Odin_OS_Type] {
-	.Linux,
-	.Haiku,
-	.Darwin,
-	.FreeBSD,
-	.NetBSD,
-	.OpenBSD,
-}
-
-when ODIN_OS in VALID_POSIX_OSES {
+when posix.IS_SUPPORTED {
 	Terminal_State :: struct {
 		state: posix.termios,
 	}
@@ -36,7 +28,7 @@ when ODIN_OS in VALID_POSIX_OSES {
 
 @(private)
 get_terminal_state :: proc() -> (Terminal_State, bool) {
-	when ODIN_OS in VALID_POSIX_OSES {
+	when posix.IS_SUPPORTED {
 		termstate: posix.termios
 		ok := posix.tcgetattr(posix.STDIN_FILENO, &termstate) == .OK
 		return Terminal_State{state = termstate}, ok
@@ -61,7 +53,7 @@ change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 		panic("failed to get terminal state")
 	}
 
-	when ODIN_OS in VALID_POSIX_OSES {
+	when posix.IS_SUPPORTED {
 		raw := termstate.state
 
 		switch mode {
@@ -131,13 +123,8 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 			ws_xpixel, ws_ypixel: c.ushort,
 		}
 
-		// right now this is supported by all odin platforms
-		// but there's a few platforms that have a different value
-		// check: https://github.com/search?q=repo%3Atorvalds%2Flinux%20TIOCGWINSZ&type=code
-		TIOCGWINSZ :: 0x5413
-
 		w: winsize
-		if linux.ioctl(linux.STDOUT_FILENO, TIOCGWINSZ, cast(uintptr)&w) != 0 do return {}, false
+		if linux.ioctl(linux.STDOUT_FILENO, linux.TIOCGWINSZ, cast(uintptr)&w) != 0 do return {}, false
 
 		win := Screen_Size {
 			h = uint(w.ws_row),
@@ -158,6 +145,22 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 		}
 
 		return screen_size, true
+	} else when ODIN_OS == .Darwin {
+		winsize :: struct {
+			ws_row, ws_col:       c.ushort,
+			ws_xpixel, ws_ypixel: c.ushort,
+		}
+
+		w: winsize
+		if darwin.syscall_ioctl(1, darwin.TIOCGWINSZ, &w) != 0 do return {}, false
+
+		win := Screen_Size {
+			h = uint(w.ws_row),
+			w = uint(w.ws_col),
+		}
+
+		return win, true
+
 	} else {
 		return {}, false
 	}
@@ -199,7 +202,7 @@ if len(input) == 1 do switch input[0] {
 Or you can use the helper procs `parse_keyboard_input` and `parse_mouse_input`.
 */
 read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
-	when ODIN_OS in VALID_POSIX_OSES {
+	when posix.IS_SUPPORTED {
 		stdin_pollfd := posix.pollfd {
 			fd     = posix.STDIN_FILENO,
 			events = {.IN},
