@@ -1,6 +1,5 @@
 package termcl
 
-import "base:intrinsics"
 import "base:runtime"
 import "core:c"
 import "core:fmt"
@@ -11,16 +10,7 @@ import "core:sys/linux"
 import "core:sys/posix"
 import "core:sys/windows"
 
-VALID_POSIX_OSES :: bit_set[runtime.Odin_OS_Type] {
-	.Linux,
-	.Haiku,
-	.Darwin,
-	.FreeBSD,
-	.NetBSD,
-	.OpenBSD,
-}
-
-when ODIN_OS in VALID_POSIX_OSES {
+when posix.IS_SUPPORTED {
 	Terminal_State :: struct {
 		state: posix.termios,
 	}
@@ -33,13 +23,12 @@ when ODIN_OS in VALID_POSIX_OSES {
 		output_mode:     windows.DWORD,
 	}
 } else {
-	Terminal_State :: struct {
-	}
+	Terminal_State :: struct {}
 }
 
 @(private)
 get_terminal_state :: proc() -> (Terminal_State, bool) {
-	when ODIN_OS in VALID_POSIX_OSES {
+	when posix.IS_SUPPORTED {
 		termstate: posix.termios
 		ok := posix.tcgetattr(posix.STDIN_FILENO, &termstate) == .OK
 		return Terminal_State{state = termstate}, ok
@@ -64,7 +53,7 @@ change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 		panic("failed to get terminal state")
 	}
 
-	when ODIN_OS in VALID_POSIX_OSES {
+	when posix.IS_SUPPORTED {
 		raw := termstate.state
 
 		switch mode {
@@ -134,13 +123,8 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 			ws_xpixel, ws_ypixel: c.ushort,
 		}
 
-		// right now this is supported by all odin platforms
-		// but there's a few platforms that have a different value
-		// check: https://github.com/search?q=repo%3Atorvalds%2Flinux%20TIOCGWINSZ&type=code
-		TIOCGWINSZ :: 0x5413
-
 		w: winsize
-		if linux.ioctl(linux.STDOUT_FILENO, TIOCGWINSZ, cast(uintptr)&w) != 0 do return {}, false
+		if linux.ioctl(linux.STDOUT_FILENO, linux.TIOCGWINSZ, cast(uintptr)&w) != 0 do return {}, false
 
 		win := Screen_Size {
 			h = uint(w.ws_row),
@@ -167,11 +151,8 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 			ws_xpixel, ws_ypixel: c.ushort,
 		}
 
-		// number copied from https://github.com/clap-rs/term_size-rs/blob/5889fdc589d267182cc946faa24e0e3166a70000/src/platform/unix.rs#L16
-		TIOCGWINSZ :: 0x40087468
-
 		w: winsize
-		if syscall_ioctl(1, TIOCGWINSZ, &w) != 0 do return {}, false
+		if darwin.syscall_ioctl(1, darwin.TIOCGWINSZ, &w) != 0 do return {}, false
 
 		win := Screen_Size {
 			h = uint(w.ws_row),
@@ -183,19 +164,6 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 	} else {
 		return {}, false
 	}
-}
-
-@(private = "file")
-// ioctl call is missing in sys/darwin/xnu_system_call_wrappers.odin
-syscall_ioctl :: #force_inline proc "contextless" (fd: c.int, request: u32, arg: rawptr) -> c.int {
-	return(
-		cast(c.int)intrinsics.syscall(
-			darwin.unix_offset_syscall(.ioctl),
-			uintptr(fd),
-			uintptr(request),
-			uintptr(arg),
-		) \
-	)
 }
 
 /*
@@ -234,7 +202,7 @@ if len(input) == 1 do switch input[0] {
 Or you can use the helper procs `parse_keyboard_input` and `parse_mouse_input`.
 */
 read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
-	when ODIN_OS in VALID_POSIX_OSES {
+	when posix.IS_SUPPORTED {
 		stdin_pollfd := posix.pollfd {
 			fd     = posix.STDIN_FILENO,
 			events = {.IN},
@@ -274,3 +242,4 @@ read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 
 	return
 }
+
