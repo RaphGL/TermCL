@@ -1,5 +1,6 @@
 package termcl
 
+import "core:os"
 import "core:sys/windows"
 
 Terminal_State :: struct {
