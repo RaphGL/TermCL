@@ -1,9 +1,9 @@
 package termcl
 
-import "core:strconv"
-import "core:unicode"
 import "core:fmt"
 import "core:os"
+import "core:strconv"
+import "core:unicode"
 
 Input :: distinct []byte
 
@@ -151,6 +151,165 @@ check what value it is processed into.
 For example, `.Escape` is either Esc, Ctrl + [ and Ctrl + 3 to the terminal.
 */
 parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Keyboard_Input, has_input: bool) {
+	_alnum_to_key :: proc(b: byte) -> (key: Key, ok: bool) {
+		switch b {
+		case '\x1b':
+			key = .Escape
+		case '1':
+			key = .Num_1
+		case '2':
+			key = .Num_2
+		case '3':
+			key = .Num_3
+		case '4':
+			key = .Num_4
+		case '5':
+			key = .Num_5
+		case '6':
+			key = .Num_6
+		case '7':
+			key = .Num_7
+		case '8':
+			key = .Num_8
+		case '9':
+			key = .Num_9
+		case '0':
+			key = .Num_0
+		case '\r', '\n':
+			key = .Enter
+		case '\t':
+			key = .Tab
+		case 8, 127:
+			key = .Backspace
+		case 'a', 'A':
+			key = .A
+		case 'b', 'B':
+			key = .B
+		case 'c', 'C':
+			key = .C
+		case 'd', 'D':
+			key = .D
+		case 'e', 'E':
+			key = .E
+		case 'f', 'F':
+			key = .F
+		case 'g', 'G':
+			key = .G
+		case 'h', 'H':
+			key = .H
+		case 'i', 'I':
+			key = .I
+		case 'j', 'J':
+			key = .J
+		case 'k', 'K':
+			key = .K
+		case 'l', 'L':
+			key = .L
+		case 'm', 'M':
+			key = .M
+		case 'n', 'N':
+			key = .N
+		case 'o', 'O':
+			key = .O
+		case 'p', 'P':
+			key = .P
+		case 'q', 'Q':
+			key = .Q
+		case 'r', 'R':
+			key = .R
+		case 's', 'S':
+			key = .S
+		case 't', 'T':
+			key = .T
+		case 'u', 'U':
+			key = .U
+		case 'v', 'V':
+			key = .V
+		case 'w', 'W':
+			key = .W
+		case 'x', 'X':
+			key = .X
+		case 'y', 'Y':
+			key = .Y
+		case 'z', 'Z':
+			key = .Z
+		case ',':
+			key = .Comma
+		case ':':
+			key = .Colon
+		case ';':
+			key = .Semicolon
+		case '-':
+			key = .Minus
+		case '+':
+			key = .Plus
+		case '=':
+			key = .Equal
+		case '{':
+			key = .Open_Curly_Bracket
+		case '}':
+			key = .Close_Curly_Bracket
+		case '(':
+			key = .Open_Paren
+		case ')':
+			key = .Close_Paren
+		case '[':
+			key = .Open_Square_Bracket
+		case ']':
+			key = .Close_Square_Bracket
+		case '/':
+			key = .Slash
+		case '\'':
+			key = .Single_Quote
+		case '"':
+			key = .Double_Quote
+		case '.':
+			key = .Period
+		case '*':
+			key = .Asterisk
+		case '`':
+			key = .Backtick
+		case '\\':
+			key = .Backslash
+		case ' ':
+			key = .Space
+		case '$':
+			key = .Dollar
+		case '!':
+			key = .Exclamation
+		case '#':
+			key = .Hash
+		case '%':
+			key = .Percent
+		case '&':
+			key = .Ampersand
+		case '´':
+			key = .Tick
+		case '_':
+			key = .Underscore
+		case '^':
+			key = .Caret
+		case '|':
+			key = .Pipe
+		case '@':
+			key = .At
+		case '~':
+			key = .Tilde
+		case '<':
+			key = .Less_Than
+		case '>':
+			key = .Greater_Than
+		case '?':
+			key = .Question_Mark
+		case:
+			ok = false
+			return
+		}
+
+		ok = true
+		return
+	}
+
 	input := input
 	seq: Keyboard_Input
 
@@ -176,169 +335,13 @@ parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Keyboard_Input, h
 			}
 		}
 
-		switch input[0] {
-		case '\x1b':
-			seq.key = .Escape
-		case '1':
-			seq.key = .Num_1
-		case '2':
-			seq.key = .Num_2
-		case '3':
-			seq.key = .Num_3
-		case '4':
-			seq.key = .Num_4
-		case '5':
-			seq.key = .Num_5
-		case '6':
-			seq.key = .Num_6
-		case '7':
-			seq.key = .Num_7
-		case '8':
-			seq.key = .Num_8
-		case '9':
-			seq.key = .Num_9
-		case '0':
-			seq.key = .Num_0
-		case '\r', '\n':
-			seq.key = .Enter
-		case '\t':
-			seq.key = .Tab
-		case 8, 127:
-			seq.key = .Backspace
-		case 'a', 'A':
-			seq.key = .A
-		case 'b', 'B':
-			seq.key = .B
-		case 'c', 'C':
-			seq.key = .C
-		case 'd', 'D':
-			seq.key = .D
-		case 'e', 'E':
-			seq.key = .E
-		case 'f', 'F':
-			seq.key = .F
-		case 'g', 'G':
-			seq.key = .G
-		case 'h', 'H':
-			seq.key = .H
-		case 'i', 'I':
-			seq.key = .I
-		case 'j', 'J':
-			seq.key = .J
-		case 'k', 'K':
-			seq.key = .K
-		case 'l', 'L':
-			seq.key = .L
-		case 'm', 'M':
-			seq.key = .M
-		case 'n', 'N':
-			seq.key = .N
-		case 'o', 'O':
-			seq.key = .O
-		case 'p', 'P':
-			seq.key = .P
-		case 'q', 'Q':
-			seq.key = .Q
-		case 'r', 'R':
-			seq.key = .R
-		case 's', 'S':
-			seq.key = .S
-		case 't', 'T':
-			seq.key = .T
-		case 'u', 'U':
-			seq.key = .U
-		case 'v', 'V':
-			seq.key = .V
-		case 'w', 'W':
-			seq.key = .W
-		case 'x', 'X':
-			seq.key = .X
-		case 'y', 'Y':
-			seq.key = .Y
-		case 'z', 'Z':
-			seq.key = .Z
-		case ',':
-			seq.key = .Comma
-		case ':':
-			seq.key = .Colon
-		case ';':
-			seq.key = .Semicolon
-		case '-':
-			seq.key = .Minus
-		case '+':
-			seq.key = .Plus
-		case '=':
-			seq.key = .Equal
-		case '{':
-			seq.key = .Open_Curly_Bracket
-		case '}':
-			seq.key = .Close_Curly_Bracket
-		case '(':
-			seq.key = .Open_Paren
-		case ')':
-			seq.key = .Close_Paren
-		case '[':
-			seq.key = .Open_Square_Bracket
-		case ']':
-			seq.key = .Close_Square_Bracket
-		case '/':
-			seq.key = .Slash
-		case '\'':
-			seq.key = .Single_Quote
-		case '"':
-			seq.key = .Double_Quote
-		case '.':
-			seq.key = .Period
-		case '*':
-			seq.key = .Asterisk
-		case '`':
-			seq.key = .Backtick
-		case '\\':
-			seq.key = .Backslash
-		case ' ':
-			seq.key = .Space
-		case '$':
-			seq.key = .Dollar
-		case '!':
-			seq.key = .Exclamation
-		case '#':
-			seq.key = .Hash
-		case '%':
-			seq.key = .Percent
-		case '&':
-			seq.key = .Ampersand
-		case '´':
-			seq.key = .Tick
-		case '_':
-			seq.key = .Underscore
-		case '^':
-			seq.key = .Caret
-		case '|':
-			seq.key = .Pipe
-		case '@':
-			seq.key = .At
-		case '~':
-			seq.key = .Tilde
-		case '<':
-			seq.key = .Less_Than
-		case '>':
-			seq.key = .Greater_Than
-		case '?':
-			seq.key = .Question_Mark
-		case:
-			return
-		}
-
+		key, ok := _alnum_to_key(input[0])
+		if !ok do return {}, false
+		seq.key = key
 		return seq, true
 	}
 
 	if input[0] != '\x1b' do return
-
-	if input[1] == 10 {
-		seq.mod = .Alt
-		seq.key = .Enter
-		return seq, true
-	}
 
 	if len(input) > 3 {
 		input_len := len(input)
@@ -486,6 +489,16 @@ parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Keyboard_Input, h
 		}
 
 		return seq, true
+	}
+
+	// alt is ESC + <char>
+	if len(input) == 2 {
+		key, ok := _alnum_to_key(input[1])
+		if ok {
+			seq.mod = .Alt
+			seq.key = key
+			return seq, true
+		}
 	}
 
 	return
