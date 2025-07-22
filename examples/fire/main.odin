@@ -31,6 +31,7 @@ coolmap: [txrows][txcols]int
 // Executes the game intro.
 main :: proc() {
 	screen := tcl.init_screen()
+	defer tcl.destroy_screen(&screen)
 	tcl.clear(&screen, .Everything)
 	tcl.blit(&screen)
 
