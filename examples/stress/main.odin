@@ -76,7 +76,7 @@ main :: proc() {
 
 	t.clear(&screen, .Everything)
 	start_time := time.now()
-	for time.since(start_time) < time.Second * 30 {
+	for time.since(start_time) < 30 * time.Second {
 		pattern := patterns[frames % len(patterns)]
 		for h in 0 ..< height {
 			for w in 0 ..< width {

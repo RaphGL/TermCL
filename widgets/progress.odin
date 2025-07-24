@@ -10,8 +10,8 @@ import "core:strconv"
 progression_bar := [?]rune{'▏', '▎', '▍', '▌', '▋', '▊', '▉'}
 
 Progress_Style :: struct {
-	description_color: Any_Color,
-	bg, fg:            Any_Color,
+	description_color: t.Any_Color,
+	bg, fg:            t.Any_Color,
 	text:              bit_set[t.Text_Style],
 	width:             Maybe(uint),
 	y, x:              uint,
@@ -75,20 +75,20 @@ progress_blit :: proc(prog: ^Progress) {
 	percentage := cast(f64)prog.curr / cast(f64)prog.max
 	curr_progress_width := uint(cast(f64)(prog._window.width.? - 8) * percentage)
 
-	set_any_color_style(&prog._window, prog.style.fg, prog.style.fg)
+	t.set_color_style(&prog._window, prog.style.fg, prog.style.fg)
 	for i in 0 ..< curr_progress_width {
 		t.write(&prog._window, progression_bar[len(progression_bar) - 1])
 	}
 
 	total_progress_width := prog._window.width.? - PROGRESS_PERCENT_SIZE
 
-	set_any_color_style(&prog._window, prog.style.bg, prog.style.bg)
+	t.set_color_style(&prog._window, prog.style.bg, prog.style.bg)
 	for i in 0 ..< total_progress_width - curr_progress_width - 1 {
 		t.write(&prog._window, progression_bar[len(progression_bar) - 1])
 	}
 
 
-	set_any_color_style(&prog._window, prog.style.fg, nil)
+	t.set_color_style(&prog._window, prog.style.fg, nil)
 	t.move_cursor(&prog._window, 0, total_progress_width)
 	t.writef(&prog._window, " %1.1f%%", percentage * 100)
 

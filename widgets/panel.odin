@@ -15,7 +15,7 @@ Panel_Item :: struct {
 }
 
 Panel_Style :: struct {
-	fg, bg:        Any_Color,
+	fg, bg:        t.Any_Color,
 	space_between: uint,
 }
 
@@ -49,7 +49,7 @@ panel_blit :: proc(panel: ^Panel) {
 	_panel_set_layout(panel)
 
 	defer t.reset_styles(&panel._window)
-	set_any_color_style(&panel._window, panel.style.fg, panel.style.bg)
+	t.set_color_style(&panel._window, panel.style.fg, panel.style.bg)
 	t.clear(&panel._window, .Everything)
 
 	cursor_on_left := t.Cursor_Position {

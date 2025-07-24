@@ -24,6 +24,11 @@ Window :: struct {
 	y_offset, x_offset: uint,
 	width, height:      Maybe(uint),
 	cursor:             Cursor_Position,
+	curr_styles:        struct {
+		text: bit_set[Text_Style],
+		fg:   Any_Color,
+		bg:   Any_Color,
+	},
 }
 
 /*
@@ -75,6 +80,11 @@ blit :: proc(win: $T/^Window) {
 	fmt.print(strings.to_string(win.seq_builder))
 	strings.builder_reset(&win.seq_builder)
 	os.flush(os.stdout)
+
+	// this is needed to prevent the window from sharing the same style as the terminal
+	// this avoids messing up users' styles from one window to another
+	set_text_style(win, win.curr_styles.text)
+	set_color_style(win, win.curr_styles.fg, win.curr_styles.bg)
 }
 
 /*
@@ -84,6 +94,7 @@ Screen :: struct {
 	using winbuf:       Window,
 	original_termstate: Terminal_State,
 	input_buf:          [512]byte,
+	size:               Screen_Size,
 }
 
 /*
@@ -183,6 +194,14 @@ window_coord_from_global :: proc(
 Changes the position of the window cursor
 */
 move_cursor :: proc(win: $T/^Window, y, x: uint) {
+	next := Cursor_Position {
+		x = x,
+		y = y,
+	}
+	if win.cursor == next {
+		return
+	}
+
 	win.cursor = {
 		x = x,
 		y = y,
@@ -199,6 +218,7 @@ move_cursor :: proc(win: $T/^Window, y, x: uint) {
 }
 
 Text_Style :: enum {
+	None,
 	Bold,
 	Italic,
 	Underline,
@@ -233,12 +253,15 @@ set_text_style :: proc(win: $T/^Window, styles: bit_set[Text_Style]) {
 	SGR_INVERTED :: ansi.CSI + ansi.INVERT + "m"
 	SGR_CROSSED :: ansi.CSI + ansi.STRIKE + "m"
 
-	if .Bold in styles do strings.write_string(&win.seq_builder, SGR_BOLD)
-	if .Dim in styles do strings.write_string(&win.seq_builder, SGR_DIM)
-	if .Italic in styles do strings.write_string(&win.seq_builder, SGR_ITALIC)
-	if .Underline in styles do strings.write_string(&win.seq_builder, SGR_UNDERLINE)
-	if .Inverted in styles do strings.write_string(&win.seq_builder, SGR_INVERTED)
-	if .Crossed in styles do strings.write_string(&win.seq_builder, SGR_CROSSED)
+	if styles != win.curr_styles.text {
+		if .Bold in styles do strings.write_string(&win.seq_builder, SGR_BOLD)
+		if .Dim in styles do strings.write_string(&win.seq_builder, SGR_DIM)
+		if .Italic in styles do strings.write_string(&win.seq_builder, SGR_ITALIC)
+		if .Underline in styles do strings.write_string(&win.seq_builder, SGR_UNDERLINE)
+		if .Inverted in styles do strings.write_string(&win.seq_builder, SGR_INVERTED)
+		if .Crossed in styles do strings.write_string(&win.seq_builder, SGR_CROSSED)
+		win.curr_styles.text = styles
+	}
 }
 
 /*
@@ -323,23 +346,31 @@ set_color_style :: proc(win: $T/^Window, fg: Any_Color, bg: Any_Color) {
 	}
 
 	DEFAULT_FG :: 39
-	switch fg_color in fg {
-	case Color_8:
-		set_color_8(&win.seq_builder, get_color_8_code(fg_color, false))
-	case Color_RGB:
-		set_color_rgb(&win.seq_builder, fg_color, false)
-	case:
-		set_color_8(&win.seq_builder, DEFAULT_FG)
+	if fg != win.curr_styles.fg {
+		switch fg_color in fg {
+		case Color_8:
+			set_color_8(&win.seq_builder, get_color_8_code(fg_color, false))
+		case Color_RGB:
+			set_color_rgb(&win.seq_builder, fg_color, false)
+		case:
+			set_color_8(&win.seq_builder, DEFAULT_FG)
+		}
+
+		win.curr_styles.fg = fg
 	}
 
 	DEFAULT_BG :: 49
-	switch bg_color in bg {
-	case Color_8:
-		set_color_8(&win.seq_builder, get_color_8_code(bg_color, true))
-	case Color_RGB:
-		set_color_rgb(&win.seq_builder, bg_color, true)
-	case:
-		set_color_8(&win.seq_builder, DEFAULT_BG)
+	if bg != win.curr_styles.bg {
+		switch bg_color in bg {
+		case Color_8:
+			set_color_8(&win.seq_builder, get_color_8_code(bg_color, true))
+		case Color_RGB:
+			set_color_rgb(&win.seq_builder, bg_color, true)
+		case:
+			set_color_8(&win.seq_builder, DEFAULT_BG)
+		}
+
+		win.curr_styles.bg = bg
 	}
 }
 
@@ -352,6 +383,7 @@ It is good practice to reset after being done with a style as to prevent styles 
 */
 reset_styles :: proc(win: $T/^Window) {
 	strings.write_string(&win.seq_builder, ansi.CSI + "0m")
+	win.curr_styles = {}
 }
 
 /*

@@ -3,7 +3,7 @@ package widgets
 import t ".."
 
 Button_Style :: struct {
-	bg, fg:        Any_Color,
+	bg, fg:        t.Any_Color,
 	text:          bit_set[t.Text_Style],
 	padding:       uint,
 	width, height: Maybe(uint),
@@ -78,10 +78,10 @@ button_blit :: proc(btn: ^Button) {
 		t.blit(&btn._content_box)
 	}
 
-	set_any_color_style(&btn._window, btn.style.fg, btn.style.bg)
+	t.set_color_style(&btn._window, btn.style.fg, btn.style.bg)
 	t.set_text_style(&btn._window, btn.style.text)
 
-	set_any_color_style(&btn._content_box, btn.style.fg, btn.style.bg)
+	t.set_color_style(&btn._content_box, btn.style.fg, btn.style.bg)
 	t.set_text_style(&btn._content_box, btn.style.text)
 
 	t.clear(&btn._window, .Everything)
