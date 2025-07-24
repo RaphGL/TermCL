@@ -31,8 +31,8 @@ main :: proc() {
 
 	Style :: struct {
 		text_style: t.Text_Style,
-		fg:         t.RGB_Color,
-		bg:         t.RGB_Color,
+		fg:         t.Color_RGB,
+		bg:         t.Color_RGB,
 	}
 
 	cell :: struct {

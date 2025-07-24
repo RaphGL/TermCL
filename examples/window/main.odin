@@ -21,7 +21,7 @@ main :: proc() {
 		t.clear(&s, .Everything)
 		defer t.blit(&s)
 
-		t.set_color_style_8(&window, .Black, .White)
+		t.set_color_style(&window, .Black, .White)
 		// this proves that no matter what the window will never be overflowed by moving the cursor
 		for i in 0 ..= 10 {
 			t.move_cursor(&window, cast(uint)i, 1)

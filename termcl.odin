@@ -8,22 +8,6 @@ import "core:terminal/ansi"
 import "core:unicode/utf8"
 
 /*
-Sends instructions to terminal
-
-**Inputs**
-- `win`: A pointer to a window 
-
-*/
-blit :: proc(win: $T/^Window) {
-	if win.height == 0 || win.width == 0 {
-		return
-	}
-	fmt.print(strings.to_string(win.seq_builder))
-	strings.builder_reset(&win.seq_builder)
-	os.flush(os.stdout)
-}
-
-/*
 A bounded "drawing" box in the terminal.
 
 **Fields**
@@ -35,6 +19,7 @@ A bounded "drawing" box in the terminal.
 */
 Window :: struct {
 	allocator:          runtime.Allocator,
+	// where the ascii escape sequence is stored
 	seq_builder:        strings.Builder,
 	y_offset, x_offset: uint,
 	width, height:      Maybe(uint),
@@ -74,6 +59,22 @@ Destroys all memory allocated by the window
 */
 destroy_window :: proc(win: ^Window) {
 	strings.builder_destroy(&win.seq_builder)
+}
+
+/*
+Sends instructions to terminal
+
+**Inputs**
+- `win`: A pointer to a window 
+
+*/
+blit :: proc(win: $T/^Window) {
+	if win.height == 0 || win.width == 0 {
+		return
+	}
+	fmt.print(strings.to_string(win.seq_builder))
+	strings.builder_reset(&win.seq_builder)
+	os.flush(os.stdout)
 }
 
 /*
@@ -256,6 +257,19 @@ Color_8 :: enum {
 }
 
 /*
+RGB color. This is should be supported by every modern terminal.
+In case you need to support an older terminals, use `Color_8` instead
+*/
+Color_RGB :: struct {
+	r, g, b: u8,
+}
+
+Any_Color :: union {
+	Color_8,
+	Color_RGB,
+}
+
+/*
 Sets background and foreground colors based on the original 8-color palette
 
 **Inputs**
@@ -263,8 +277,15 @@ Sets background and foreground colors based on the original 8-color palette
 - `fg`: the foreground color, if the color is nil the default foreground color will be used 
 - `bg`: the background color, if the color is nil the default background color will be used 
 */
-set_color_style_8 :: proc(win: $T/^Window, fg: Maybe(Color_8), bg: Maybe(Color_8)) {
-	get_color_code :: proc(c: Color_8, is_bg: bool) -> uint {
+set_color_style :: proc(win: $T/^Window, fg: Any_Color, bg: Any_Color) {
+	set_color_8 :: proc(builder: ^strings.Builder, color: uint) {
+		SGR_COLOR :: ansi.CSI + "%dm"
+		strings.write_string(builder, ansi.CSI)
+		strings.write_uint(builder, color)
+		strings.write_rune(builder, 'm')
+	}
+
+	get_color_8_code :: proc(c: Color_8, is_bg: bool) -> uint {
 		code: uint
 		switch c {
 		case .Black:
@@ -289,44 +310,9 @@ set_color_style_8 :: proc(win: $T/^Window, fg: Maybe(Color_8), bg: Maybe(Color_8
 		return code
 	}
 
-	SGR_COLOR :: ansi.CSI + "%dm"
-	set_color :: proc(builder: ^strings.Builder, color: uint) {
+	set_color_rgb :: proc(builder: ^strings.Builder, color: Color_RGB, is_bg: bool) {
 		strings.write_string(builder, ansi.CSI)
-		strings.write_uint(builder, color)
-		strings.write_rune(builder, 'm')
-	}
-
-	DEFAULT_FG :: 39
-	DEFAULT_BG :: 49
-	set_color(&win.seq_builder, get_color_code(fg.?, false) if fg != nil else DEFAULT_FG)
-	set_color(&win.seq_builder, get_color_code(bg.?, true) if bg != nil else DEFAULT_BG)
-}
-
-/*
-RGB color. This is should be supported by every modern terminal.
-In case you need to support an older terminals, use `Color_8` instead
-*/
-RGB_Color :: struct {
-	r, g, b: u8,
-}
-
-/*
-Sets background and foreground colors based on the RGB values.
-
-**Inputs**
-- `win`: the window that will use the colors set
-- `fg`: the foreground color, if the color is nil the default foreground color will be used 
-- `bg`: the background color, if the color is nil the default background color will be used 
-
-Note: The terminal has to support true colors for it to work.
-*/
-set_color_style_rgb :: proc(win: $T/^Window, fg: Maybe(RGB_Color), bg: Maybe(RGB_Color)) {
-	RGB_FG_COLOR :: ansi.CSI + "38;2;%d;%d;%dm"
-	RGB_BG_COLOR :: ansi.CSI + "48;2;%d;%d;%dm"
-
-	set_color :: proc(builder: ^strings.Builder, is_fg: bool, color: RGB_Color) {
-		strings.write_string(builder, ansi.CSI)
-		strings.write_uint(builder, 38 if is_fg else 48)
+		strings.write_uint(builder, 48 if is_bg else 38)
 		strings.write_string(builder, ";2;")
 		strings.write_uint(builder, cast(uint)color.r)
 		strings.write_rune(builder, ';')
@@ -336,29 +322,25 @@ set_color_style_rgb :: proc(win: $T/^Window, fg: Maybe(RGB_Color), bg: Maybe(RGB
 		strings.write_rune(builder, 'm')
 	}
 
-	fg_color, has_fg := fg.?
-	bg_color, has_bg := bg.?
-
-	if !has_fg || !has_bg {
-		set_color_style_8(win, nil, nil)
+	DEFAULT_FG :: 39
+	switch fg_color in fg {
+	case Color_8:
+		set_color_8(&win.seq_builder, get_color_8_code(fg_color, false))
+	case Color_RGB:
+		set_color_rgb(&win.seq_builder, fg_color, false)
+	case:
+		set_color_8(&win.seq_builder, DEFAULT_FG)
 	}
 
-	if has_fg do set_color(&win.seq_builder, true, fg_color)
-	if has_bg do set_color(&win.seq_builder, false, bg_color)
-
-}
-
-/*
-Sets background and foreground colors.
-
-**Inputs**
-- `win`: the window that will use the colors set
-- `fg`: the foreground color, if the color is nil the default foreground color will be used 
-- `bg`: the background color, if the color is nil the default background color will be used 
-*/
-set_color_style :: proc {
-	set_color_style_8,
-	set_color_style_rgb,
+	DEFAULT_BG :: 49
+	switch bg_color in bg {
+	case Color_8:
+		set_color_8(&win.seq_builder, get_color_8_code(bg_color, true))
+	case Color_RGB:
+		set_color_rgb(&win.seq_builder, bg_color, true)
+	case:
+		set_color_8(&win.seq_builder, DEFAULT_BG)
+	}
 }
 
 /*

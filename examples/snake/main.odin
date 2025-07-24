@@ -46,7 +46,7 @@ snake_destroy :: proc(snake: Snake) {
 }
 
 snake_draw :: proc(snake: Snake, s: ^t.Screen) {
-	t.set_color_style_8(s, nil, .Green)
+	t.set_color_style(s, nil, .Green)
 	defer t.reset_styles(s)
 
 	for part in snake.body {
@@ -54,7 +54,7 @@ snake_draw :: proc(snake: Snake, s: ^t.Screen) {
 		t.write(s, ' ')
 	}
 
-	t.set_color_style_8(s, nil, .White)
+	t.set_color_style(s, nil, .White)
 	t.move_cursor(s, snake.head.y, snake.head.x)
 	t.write(s, ' ')
 }
@@ -79,7 +79,7 @@ box_init :: proc(s: ^t.Screen) -> Game_Box {
 
 box_draw :: proc(game: Game, s: ^t.Screen) {
 	box := game.box
-	t.set_color_style_8(s, .Black, .White)
+	t.set_color_style(s, .Black, .White)
 	defer t.reset_styles(s)
 
 	draw_row :: proc(box: Game_Box, s: ^t.Screen, y: uint) {
@@ -219,7 +219,7 @@ game_tick :: proc(game: ^Game, s: ^t.Screen) {
 	}
 
 	t.move_cursor(s, game.food.y, game.food.x)
-	t.set_color_style_8(s, nil, .Yellow)
+	t.set_color_style(s, nil, .Yellow)
 	t.write(s, ' ')
 	t.reset_styles(s)
 

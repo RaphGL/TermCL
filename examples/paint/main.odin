@@ -32,7 +32,7 @@ paint_buffer_to_screen :: proc(pbuf: ^Paint_Buffer) {
 	pbuf.window.x_offset = termsize.w / 2 - PAINT_BUFFER_WIDTH / 2
 	pbuf.window.y_offset = termsize.h / 2 - PAINT_BUFFER_HEIGHT / 2
 
-	t.set_color_style_8(&pbuf.window, .White, .White)
+	t.set_color_style(&pbuf.window, .White, .White)
 	t.clear(&pbuf.window, .Everything)
 
 	defer {
@@ -45,7 +45,7 @@ paint_buffer_to_screen :: proc(pbuf: ^Paint_Buffer) {
 			t.move_cursor(&pbuf.window, uint(y), uint(x))
 			color := pbuf.buffer[y][x]
 			if color == nil do continue
-			t.set_color_style_8(&pbuf.window, color, color)
+			t.set_color_style(&pbuf.window, color.?, color.?)
 			t.write(&pbuf.window, ' ')
 		}
 	}
