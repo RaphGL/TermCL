@@ -654,19 +654,15 @@ The screen size, where both the width and height are measured
 by the number of terminal cells.
 */
 get_term_size :: proc(screen: ^Screen) -> Screen_Size {
-	win, ok := get_term_size_via_syscall()
-	if ok do return win
+	termsize, ok := get_term_size_via_syscall()
+	if !ok {
+		panic(
+			`Failed to fetch terminal size. Your platform is probably not support
+			Please create an issue: https://github.com/RaphGL/TermCL/issues`,
+		)
+	}
 
-	curr_pos := get_cursor_position(screen)
-
-	MAX_CURSOR_POSITION :: ansi.CSI + "9999;9999H"
-	fmt.print(MAX_CURSOR_POSITION)
-	pos := get_cursor_position(screen)
-
-	// restore cursor position
-	fmt.printf(ansi.CSI + "%d;%dH", curr_pos.y, curr_pos.x)
-
-	return Screen_Size{w = pos.x, h = pos.y}
+	return termsize
 }
 
 /*

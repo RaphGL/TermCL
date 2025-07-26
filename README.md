@@ -59,25 +59,26 @@ Here's a few minor things to take into consideration:
 ```odin
 package main
 
-import "termcl"
+import t "termcl"
 
 main :: proc() {
-    scr := termcl.init_screen()
-    defer termcl.destroy_screen(&scr)
+    scr := t.init_screen()
+    defer t.destroy_screen(&scr)
+    t.clear(&scr, .Everything)
 
-    termcl.set_text_style(&scr, {.Bold, .Italic})
-    termcl.write(&scr, "Hello ")
-    termcl.reset_styles(&scr)
+    t.set_text_style(&scr, {.Bold, .Italic})
+    t.write(&scr, "Hello ")
+    t.reset_styles(&scr)
 
-    termcl.set_text_style(&scr, {.Dim})
-    termcl.set_color_style_8(&scr, .Green, nil)
-    termcl.write(&scr, "from ANSI escapes")
-    termcl.reset_styles(&scr)
+    t.set_text_style(&scr, {.Dim})
+    t.set_color_style(&scr, .Green, nil)
+    t.write(&scr, "from ANSI escapes")
+    t.reset_styles(&scr)
 
-    termcl.move_cursor(&scr, 10, 10)
-    termcl.write(&scr, "Alles Ordnung")
+    t.move_cursor(&scr, 10, 10)
+    t.write(&scr, "Alles Ordnung")
 
-    termcl.blit(&scr)
+    t.blit(&scr)
 }
 ```
 
