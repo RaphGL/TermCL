@@ -6,6 +6,25 @@ import "core:os"
 import "core:strings"
 import "core:terminal/ansi"
 import "core:unicode/utf8"
+import "raw"
+
+Text_Style :: raw.Text_Style
+Color_8 :: raw.Color_8
+Color_RGB :: raw.Color_RGB
+Any_Color :: raw.Any_Color
+Clear_Mode :: raw.Clear_Mode
+
+ring_bell :: raw.ring_bell
+enable_mouse :: raw.enable_mouse
+hide_cursor :: raw.hide_cursor
+enable_alt_buffer :: raw.enable_alt_buffer
+
+Cell :: struct {
+	r:    rune,
+	fg:   Any_Color,
+	bg:   Any_Color,
+	text: bit_set[Text_Style],
+}
 
 /*
 A bounded "drawing" box in the terminal.
@@ -21,9 +40,16 @@ Window :: struct {
 	allocator:          runtime.Allocator,
 	// where the ascii escape sequence is stored
 	seq_builder:        strings.Builder,
+	curr_cells:         [dynamic]Cell,
+	prev_cells:         [dynamic]Cell,
 	y_offset, x_offset: uint,
 	width, height:      Maybe(uint),
 	cursor:             Cursor_Position,
+
+	/*
+	these styles are guaranteed because they're always the first thing
+	pushed to the `seq_builder` after a `blit`
+	 */
 	curr_styles:        struct {
 		text: bit_set[Text_Style],
 		fg:   Any_Color,
@@ -50,12 +76,25 @@ init_window :: proc(
 	height, width: Maybe(uint),
 	allocator := context.allocator,
 ) -> Window {
+	cell_buf_size: uint
+	// TODO: handle when only one of these are nil aka they should be the same size as terminal screen
+	if height != nil && width != nil {
+		cell_buf_size = height.? * width.?
+	}
+
+	prev_cells := make([dynamic]Cell, allocator)
+	reserve(&prev_cells, cell_buf_size)
+	curr_cells := make([dynamic]Cell, allocator)
+	reserve(&curr_cells, cell_buf_size)
+
 	return Window {
 		seq_builder = strings.builder_make(allocator = allocator),
 		y_offset = y,
 		x_offset = x,
 		height = height,
 		width = width,
+		prev_cells = prev_cells,
+		curr_cells = curr_cells,
 	}
 }
 
@@ -64,6 +103,8 @@ Destroys all memory allocated by the window
 */
 destroy_window :: proc(win: ^Window) {
 	strings.builder_destroy(&win.seq_builder)
+	delete(win.curr_cells)
+	delete(win.prev_cells)
 }
 
 /*
@@ -125,7 +166,7 @@ Restores the terminal to its original state and frees all memory allocated by th
 destroy_screen :: proc(screen: ^Screen) {
 	set_term_mode(screen, .Restored)
 	destroy_window(&screen.winbuf)
-	fmt.print("\x1b[?1049l")
+	enable_alt_buffer(false)
 }
 
 /*
@@ -207,195 +248,8 @@ move_cursor :: proc(win: $T/^Window, y, x: uint) {
 		y = y,
 	}
 
-	global_cursor_pos := global_coord_from_window(win, y, x)
-	CURSOR_POSITION :: ansi.CSI + "%d;%dH"
-	strings.write_string(&win.seq_builder, ansi.CSI)
-	// x and y are shifted by one position so that programmers can keep using 0 based indexing
-	strings.write_uint(&win.seq_builder, global_cursor_pos.y + 1)
-	strings.write_rune(&win.seq_builder, ';')
-	strings.write_uint(&win.seq_builder, global_cursor_pos.x + 1)
-	strings.write_rune(&win.seq_builder, 'H')
-}
-
-Text_Style :: enum {
-	None,
-	Bold,
-	Italic,
-	Underline,
-	Crossed,
-	Inverted,
-	Dim,
-}
-
-/*
-Hides the cursor so that it's not showed in the terminal
-*/
-hide_cursor :: proc(hide: bool) {
-	SHOW_CURSOR :: ansi.CSI + "?25h"
-	HIDE_CURSOR :: ansi.CSI + "?25l"
-	fmt.print(HIDE_CURSOR if hide else SHOW_CURSOR)
-}
-
-/*
-Sets the style used by the window.
-
-**Inputs**
-- `win`: the window whose text style will be changed
-- `styles`: the styles that will be applied
-
-Note: It is good practice to `reset_styles` when the styles are not needed anymore.
-*/
-set_text_style :: proc(win: $T/^Window, styles: bit_set[Text_Style]) {
-	SGR_BOLD :: ansi.CSI + ansi.BOLD + "m"
-	SGR_DIM :: ansi.CSI + ansi.FAINT + "m"
-	SGR_ITALIC :: ansi.CSI + ansi.ITALIC + "m"
-	SGR_UNDERLINE :: ansi.CSI + ansi.UNDERLINE + "m"
-	SGR_INVERTED :: ansi.CSI + ansi.INVERT + "m"
-	SGR_CROSSED :: ansi.CSI + ansi.STRIKE + "m"
-
-	if styles != win.curr_styles.text {
-		if .Bold in styles do strings.write_string(&win.seq_builder, SGR_BOLD)
-		if .Dim in styles do strings.write_string(&win.seq_builder, SGR_DIM)
-		if .Italic in styles do strings.write_string(&win.seq_builder, SGR_ITALIC)
-		if .Underline in styles do strings.write_string(&win.seq_builder, SGR_UNDERLINE)
-		if .Inverted in styles do strings.write_string(&win.seq_builder, SGR_INVERTED)
-		if .Crossed in styles do strings.write_string(&win.seq_builder, SGR_CROSSED)
-		win.curr_styles.text = styles
-	}
-}
-
-/*
-Colors from the original 8-color palette.
-These should be supported everywhere this library is supported.
-*/
-Color_8 :: enum {
-	Black,
-	Red,
-	Green,
-	Yellow,
-	Blue,
-	Magenta,
-	Cyan,
-	White,
-}
-
-/*
-RGB color. This is should be supported by every modern terminal.
-In case you need to support an older terminals, use `Color_8` instead
-*/
-Color_RGB :: struct {
-	r, g, b: u8,
-}
-
-Any_Color :: union {
-	Color_8,
-	Color_RGB,
-}
-
-/*
-Sets background and foreground colors based on the original 8-color palette
-
-**Inputs**
-- `win`: the window that will use the colors set
-- `fg`: the foreground color, if the color is nil the default foreground color will be used 
-- `bg`: the background color, if the color is nil the default background color will be used 
-*/
-set_color_style :: proc(win: $T/^Window, fg: Any_Color, bg: Any_Color) {
-	set_color_8 :: proc(builder: ^strings.Builder, color: uint) {
-		SGR_COLOR :: ansi.CSI + "%dm"
-		strings.write_string(builder, ansi.CSI)
-		strings.write_uint(builder, color)
-		strings.write_rune(builder, 'm')
-	}
-
-	get_color_8_code :: proc(c: Color_8, is_bg: bool) -> uint {
-		code: uint
-		switch c {
-		case .Black:
-			code = 30
-		case .Red:
-			code = 31
-		case .Green:
-			code = 32
-		case .Yellow:
-			code = 33
-		case .Blue:
-			code = 34
-		case .Magenta:
-			code = 35
-		case .Cyan:
-			code = 36
-		case .White:
-			code = 37
-		}
-
-		if is_bg do code += 10
-		return code
-	}
-
-	set_color_rgb :: proc(builder: ^strings.Builder, color: Color_RGB, is_bg: bool) {
-		strings.write_string(builder, ansi.CSI)
-		strings.write_uint(builder, 48 if is_bg else 38)
-		strings.write_string(builder, ";2;")
-		strings.write_uint(builder, cast(uint)color.r)
-		strings.write_rune(builder, ';')
-		strings.write_uint(builder, cast(uint)color.g)
-		strings.write_rune(builder, ';')
-		strings.write_uint(builder, cast(uint)color.b)
-		strings.write_rune(builder, 'm')
-	}
-
-	DEFAULT_FG :: 39
-	if fg != win.curr_styles.fg {
-		switch fg_color in fg {
-		case Color_8:
-			set_color_8(&win.seq_builder, get_color_8_code(fg_color, false))
-		case Color_RGB:
-			set_color_rgb(&win.seq_builder, fg_color, false)
-		case:
-			set_color_8(&win.seq_builder, DEFAULT_FG)
-		}
-
-		win.curr_styles.fg = fg
-	}
-
-	DEFAULT_BG :: 49
-	if bg != win.curr_styles.bg {
-		switch bg_color in bg {
-		case Color_8:
-			set_color_8(&win.seq_builder, get_color_8_code(bg_color, true))
-		case Color_RGB:
-			set_color_rgb(&win.seq_builder, bg_color, true)
-		case:
-			set_color_8(&win.seq_builder, DEFAULT_BG)
-		}
-
-		win.curr_styles.bg = bg
-	}
-}
-
-/*
-Resets all styles previously set.
-It is good practice to reset after being done with a style as to prevent styles to be applied erroneously.
-
-**Inputs**
-- `win`: the window whose styles will be reset
-*/
-reset_styles :: proc(win: $T/^Window) {
-	strings.write_string(&win.seq_builder, ansi.CSI + "0m")
-	win.curr_styles = {}
-}
-
-/*
-Indicates how to clear the window. 
-*/
-Clear_Mode :: enum {
-	// Clear everything before the cursor
-	Before_Cursor,
-	// Clear everything after the cursor
-	After_Cursor,
-	// Clear the whole screen/window
-	Everything,
+	global_pos := global_coord_from_window(win, y, x)
+	raw.move_cursor(&win.seq_builder, global_pos.y, global_pos.x)
 }
 
 /*
@@ -409,16 +263,9 @@ clear :: proc(win: $T/^Window, mode: Clear_Mode) {
 	height, h_ok := win.height.?
 	width, w_ok := win.width.?
 
-	if !h_ok && !w_ok do switch mode {
-	case .After_Cursor:
-		strings.write_string(&win.seq_builder, ansi.CSI + "0J")
-	case .Before_Cursor:
-		strings.write_string(&win.seq_builder, ansi.CSI + "1J")
-	case .Everything:
-		strings.write_string(&win.seq_builder, ansi.CSI + "H" + ansi.CSI + "2J")
-		win.cursor = {0, 0}
-	}
-	else {
+	if !h_ok && !w_ok {
+		raw.clear(&win.seq_builder, mode)
+	} else {
 		// we compute the number of spaces required to clear a window and then
 		// let the write_rune function take care of properly moving the cursor
 		// through its own window isolation logic
@@ -444,35 +291,12 @@ clear :: proc(win: $T/^Window, mode: Clear_Mode) {
 		}
 
 		move_cursor(win, curr_pos.y, curr_pos.x)
-
 	}
 }
 
-/*
-Clear the current line the cursor is in.
-
-**Inputs**
-- `win`: the window whose current line will be cleared
-- `mode`: how the window will be cleared
-*/
 clear_line :: proc(win: $T/^Window, mode: Clear_Mode) {
-	switch mode {
-	case .After_Cursor:
-		strings.write_string(&win.seq_builder, ansi.CSI + "0K")
-	case .Before_Cursor:
-		strings.write_string(&win.seq_builder, ansi.CSI + "1K")
-	case .Everything:
-		strings.write_string(&win.seq_builder, ansi.CSI + "2K")
-	}
-}
-
-/*
-Ring the terminal bell. (potentially annoying to users :P)
-
-Note: this rings the bell as soon as this procedure is called.
-*/
-ring_bell :: proc() {
-	fmt.print("\a")
+	// TODO: implement clear line for windows with width and height not nil
+	raw.clear_line(&win.seq_builder, mode)
 }
 
 // This is used internally to figure out and update where the cursor will be after a string is written to the terminal
@@ -622,14 +446,12 @@ set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 
 	#partial switch mode {
 	case .Restored:
-		// enables main screen buffer
-		fmt.print("\x1b[?1049l")
+		enable_alt_buffer(false)
 		enable_mouse(false)
 
-	case:
-		// enables alternate screen buffer
-		fmt.print("\x1b[?1049h")
-		enable_mouse(true)
+	case .Raw:
+		enable_alt_buffer(true)
+		raw.enable_mouse(true)
 	}
 
 	hide_cursor(false)
@@ -637,6 +459,30 @@ set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	// in stdin potentially causing nonblocking reads to block on the first read, so to avoid this,
 	// stdin is always flushed when the mode is changed
 	os.flush(os.stdin)
+}
+
+set_text_style :: proc(win: $T/^Window, styles: bit_set[Text_Style]) {
+	if styles != win.curr_styles.text {
+		raw.set_text_style(&win.seq_builder, styles)
+		win.curr_styles.text = styles
+	}
+}
+
+set_color_style :: proc(win: $T/^Window, fg: Any_Color, bg: Any_Color) {
+	if fg != win.curr_styles.fg {
+		raw.set_fg_color_style(&win.seq_builder, fg)
+		win.curr_styles.fg = fg
+	}
+
+	if bg != win.curr_styles.bg {
+		raw.set_bg_color_style(&win.seq_builder, bg)
+		win.curr_styles.bg = bg
+	}
+}
+
+reset_styles :: proc(win: $T/^Window) {
+	raw.reset_styles(&win.seq_builder)
+	win.curr_styles = {}
 }
 
 Screen_Size :: struct {
@@ -663,22 +509,6 @@ get_term_size :: proc(screen: ^Screen) -> Screen_Size {
 	}
 
 	return termsize
-}
-
-/*
-Enable mouse to be able to respond to mouse inputs.
-
-Note: Mouse is enabled by default if you're in raw mode.
-*/
-enable_mouse :: proc(enable: bool) {
-	ANY_EVENT :: "\x1b[?1003"
-	SGR_MOUSE :: "\x1b[?1006"
-
-	if enable {
-		fmt.print(ANY_EVENT + "h", SGR_MOUSE + "h")
-	} else {
-		fmt.print(ANY_EVENT + "l", SGR_MOUSE + "l")
-	}
 }
 
 Cursor_Position :: struct {
