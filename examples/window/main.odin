@@ -8,7 +8,7 @@ main :: proc() {
 	t.set_term_mode(&s, .Raw)
 	t.hide_cursor(true)
 
-	termsize := t.get_term_size(&s)
+	termsize := t.get_term_size()
 
 	msg := "Use WASD or arrow keys to move window and 'q' to quit."
 	window := t.init_window(termsize.h / 2, termsize.w / 2 - len(msg) / 2, 3, (uint)(len(msg) + 2))

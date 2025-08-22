@@ -26,6 +26,60 @@ Cell :: struct {
 	text: bit_set[Text_Style],
 }
 
+Cell_Buffer_Type :: enum {
+	Front,
+	Back,
+}
+
+Cell_Buffer :: struct {
+	// a double buffer used to diff before dispatching escape codes
+	// both cell buffers ought to always have the same size
+	cells:         [Cell_Buffer_Type][dynamic]Cell,
+	width, height: uint,
+}
+
+cellbuf_init :: proc(height, width: uint, allocator := context.allocator) -> Cell_Buffer {
+	cb := Cell_Buffer {
+		height = height,
+		width  = width,
+	}
+	cb.cells[.Back] = make([dynamic]Cell, allocator)
+	cb.cells[.Front] = make([dynamic]Cell, allocator)
+
+	cb_len := height * width
+	resize(&cb.cells[.Back], cb_len)
+	resize(&cb.cells[.Front], cb_len)
+	return cb
+}
+
+cellbuf_destroy :: proc(cb: ^Cell_Buffer) {
+	delete(cb.cells[.Back])
+	delete(cb.cells[.Front])
+	cb.height = 0
+	cb.width = 0
+}
+
+cellbuf_resize :: proc(cb: ^Cell_Buffer, height, width: uint) {
+	cb_len := height * width
+	cb.height = height
+	cb.width = width
+	resize(&cb.cells[.Back], cb_len)
+	resize(&cb.cells[.Front], cb_len)
+}
+
+cellbuf_get :: proc(cb: Cell_Buffer, type: Cell_Buffer_Type, y, x: uint) -> Cell {
+	return cb.cells[type][x + y * cb.height]
+}
+
+cellbuf_set :: proc(cb: ^Cell_Buffer, type: Cell_Buffer_Type, y, x: uint, cell: Cell) {
+	cb.cells[type][x + y * cb.height] = cell
+}
+
+// copies the contents of the back buffer to the frontbuffer
+cellbuf_swap :: proc(cb: ^Cell_Buffer) {
+	copy(cb.cells[.Front][:], cb.cells[.Back][:])
+}
+
 /*
 A bounded "drawing" box in the terminal.
 
@@ -40,8 +94,6 @@ Window :: struct {
 	allocator:          runtime.Allocator,
 	// where the ascii escape sequence is stored
 	seq_builder:        strings.Builder,
-	curr_cells:         [dynamic]Cell,
-	prev_cells:         [dynamic]Cell,
 	y_offset, x_offset: uint,
 	width, height:      Maybe(uint),
 	cursor:             Cursor_Position,
@@ -55,6 +107,7 @@ Window :: struct {
 		fg:   Any_Color,
 		bg:   Any_Color,
 	},
+	cell_buffer:        Cell_Buffer,
 }
 
 /*
@@ -76,16 +129,11 @@ init_window :: proc(
 	height, width: Maybe(uint),
 	allocator := context.allocator,
 ) -> Window {
-	cell_buf_size: uint
-	// TODO: handle when only one of these are nil aka they should be the same size as terminal screen
-	if height != nil && width != nil {
-		cell_buf_size = height.? * width.?
-	}
+	h, h_ok := height.?
+	w, w_ok := width.?
+	termsize := get_term_size()
 
-	prev_cells := make([dynamic]Cell, allocator)
-	reserve(&prev_cells, cell_buf_size)
-	curr_cells := make([dynamic]Cell, allocator)
-	reserve(&curr_cells, cell_buf_size)
+	cell_buffer := cellbuf_init(h if h_ok else termsize.h, w if w_ok else termsize.w, allocator)
 
 	return Window {
 		seq_builder = strings.builder_make(allocator = allocator),
@@ -93,8 +141,7 @@ init_window :: proc(
 		x_offset = x,
 		height = height,
 		width = width,
-		prev_cells = prev_cells,
-		curr_cells = curr_cells,
+		cell_buffer = cell_buffer,
 	}
 }
 
@@ -103,8 +150,7 @@ Destroys all memory allocated by the window
 */
 destroy_window :: proc(win: ^Window) {
 	strings.builder_destroy(&win.seq_builder)
-	delete(win.curr_cells)
-	delete(win.prev_cells)
+	cellbuf_destroy(&win.cell_buffer)
 }
 
 /*
@@ -179,7 +225,7 @@ global_coord_from_window :: proc(win: $T/^Window, y, x: uint) -> Cursor_Position
 	}
 
 	when type_of(win) == ^Screen {
-		term_size := get_term_size(win)
+		term_size := get_term_size()
 		height := term_size.h
 		width := term_size.w
 	} else {
@@ -324,7 +370,7 @@ _get_cursor_pos_from_string :: proc(win: $T/^Window, str: string) -> [2]uint {
 	}
 
 	when type_of(win) == ^Screen {
-		term_size := get_term_size(win)
+		term_size := get_term_size()
 		height := term_size.h
 		width := term_size.w
 		return calculate_cursor_pos(&win.cursor, height, width, str)
@@ -358,7 +404,7 @@ Writes a string to the terminal
 */
 write_string :: proc(win: $T/^Window, str: string) {
 	when type_of(win) == ^Screen {
-		term_size := get_term_size(win)
+		term_size := get_term_size()
 		win_width := term_size.w
 	} else {
 		win_width, w_ok := win.width.?
@@ -499,7 +545,7 @@ Get the terminal screen size.
 The screen size, where both the width and height are measured
 by the number of terminal cells.
 */
-get_term_size :: proc(screen: ^Screen) -> Screen_Size {
+get_term_size :: proc() -> Screen_Size {
 	termsize, ok := get_term_size_via_syscall()
 	if !ok {
 		panic(

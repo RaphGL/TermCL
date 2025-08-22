@@ -20,23 +20,21 @@ Panel_Style :: struct {
 }
 
 Panel :: struct {
-	_screen: ^t.Screen,
 	_window: t.Window,
 	items:   []Panel_Item,
 	style:   Panel_Style,
 }
 
 panel_init :: proc(screen: ^t.Screen) -> Panel {
-	termsize := t.get_term_size(screen)
+	termsize := t.get_term_size()
 	return Panel {
-		_screen = screen,
 		_window = t.init_window(0, 0, 1, 0),
 		style = {space_between = 2, fg = .Black, bg = .White},
 	}
 }
 
 _panel_set_layout :: proc(panel: ^Panel) {
-	termsize := t.get_term_size(panel._screen)
+	termsize := t.get_term_size()
 	panel._window.y_offset = termsize.h
 	panel._window.width = termsize.w
 }

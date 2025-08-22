@@ -10,7 +10,9 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 	}
 
 	w: winsize
-	if linux.ioctl(linux.STDOUT_FILENO, linux.TIOCGWINSZ, cast(uintptr)&w) != 0 do return {}, false
+	if linux.ioctl(linux.STDOUT_FILENO, linux.TIOCGWINSZ, cast(uintptr)&w) != 0 {
+		return {}, false
+	}
 
 	win := Screen_Size {
 		h = uint(w.ws_row),
