@@ -46,7 +46,7 @@ cellbuf_init :: proc(height, width: uint, allocator := context.allocator) -> Cel
 	cb.cells[.Back] = make([dynamic]Cell, allocator)
 	cb.cells[.Front] = make([dynamic]Cell, allocator)
 
-	cb_len := height * width
+	cb_len := height * width + 1
 	resize(&cb.cells[.Back], cb_len)
 	resize(&cb.cells[.Front], cb_len)
 	return cb
@@ -60,7 +60,7 @@ cellbuf_destroy :: proc(cb: ^Cell_Buffer) {
 }
 
 cellbuf_resize :: proc(cb: ^Cell_Buffer, height, width: uint) {
-	cb_len := height * width
+	cb_len := height * width + 1
 	cb.height = height
 	cb.width = width
 	resize(&cb.cells[.Back], cb_len)
@@ -68,11 +68,11 @@ cellbuf_resize :: proc(cb: ^Cell_Buffer, height, width: uint) {
 }
 
 cellbuf_get :: proc(cb: Cell_Buffer, type: Cell_Buffer_Type, y, x: uint) -> Cell {
-	return cb.cells[type][x + y * cb.height]
+	return cb.cells[type][x + y * cb.width]
 }
 
 cellbuf_set :: proc(cb: ^Cell_Buffer, type: Cell_Buffer_Type, y, x: uint, cell: Cell) {
-	cb.cells[type][x + y * cb.height] = cell
+	cb.cells[type][x + y * cb.width] = cell
 }
 
 // copies the contents of the back buffer to the frontbuffer
@@ -164,14 +164,47 @@ blit :: proc(win: $T/^Window) {
 	if win.height == 0 || win.width == 0 {
 		return
 	}
-	fmt.print(strings.to_string(win.seq_builder))
-	strings.builder_reset(&win.seq_builder)
-	os.flush(os.stdout)
 
 	// this is needed to prevent the window from sharing the same style as the terminal
 	// this avoids messing up users' styles from one window to another
-	set_text_style(win, win.curr_styles.text)
-	set_color_style(win, win.curr_styles.fg, win.curr_styles.bg)
+	raw.set_fg_color_style(&win.seq_builder, win.curr_styles.fg)
+	raw.set_bg_color_style(&win.seq_builder, win.curr_styles.bg)
+	raw.set_text_style(&win.seq_builder, win.curr_styles.text)
+
+	/*
+	TODO optimizations:
+	- check empty runes before and after cursor on ^Screen if empty use raw.clear()
+	- only print changes between back and front buffers
+	*/
+
+	for y in 0 ..< win.cell_buffer.height {
+		global_pos := global_coord_from_window(win, y, 0)
+		raw.move_cursor(&win.seq_builder, global_pos.y, global_pos.x)
+
+		for x in 0 ..< win.cell_buffer.width {
+			curr_cell := cellbuf_get(win.cell_buffer, .Back, y, x)
+			if win.curr_styles.fg != curr_cell.fg {
+				raw.set_fg_color_style(&win.seq_builder, curr_cell.fg)
+				win.curr_styles.fg = curr_cell.fg
+			}
+
+			if win.curr_styles.bg != curr_cell.bg {
+				raw.set_bg_color_style(&win.seq_builder, curr_cell.bg)
+				win.curr_styles.bg = curr_cell.bg
+			}
+
+			if win.curr_styles.text != curr_cell.text {
+				raw.set_text_style(&win.seq_builder, curr_cell.text)
+				win.curr_styles.text = curr_cell.text
+			}
+
+			strings.write_rune(&win.seq_builder, curr_cell.r)
+		}
+	}
+
+	fmt.print(strings.to_string(win.seq_builder), flush = true)
+	strings.builder_reset(&win.seq_builder)
+	cellbuf_swap(&win.cell_buffer)
 }
 
 /*
@@ -200,6 +233,7 @@ init_screen :: proc(allocator := context.allocator) -> Screen {
 		panic("failed to get terminal state")
 	}
 
+	// TODO: get cursor position from terminal on init
 	return Screen {
 		original_termstate = termstate,
 		winbuf = init_window(0, 0, nil, nil, allocator = allocator),
@@ -281,21 +315,10 @@ window_coord_from_global :: proc(
 Changes the position of the window cursor
 */
 move_cursor :: proc(win: $T/^Window, y, x: uint) {
-	next := Cursor_Position {
-		x = x,
-		y = y,
-	}
-	if win.cursor == next {
-		return
-	}
-
 	win.cursor = {
 		x = x,
 		y = y,
 	}
-
-	global_pos := global_coord_from_window(win, y, x)
-	raw.move_cursor(&win.seq_builder, global_pos.y, global_pos.x)
 }
 
 /*
@@ -306,46 +329,47 @@ Clear the screen.
 - `mode`: how the clearing will be done
 */
 clear :: proc(win: $T/^Window, mode: Clear_Mode) {
-	height, h_ok := win.height.?
-	width, w_ok := win.width.?
+	height := win.cell_buffer.height
+	width := win.cell_buffer.width
 
-	if !h_ok && !w_ok {
-		raw.clear(&win.seq_builder, mode)
-	} else {
-		// we compute the number of spaces required to clear a window and then
-		// let the write_rune function take care of properly moving the cursor
-		// through its own window isolation logic
-		space_num: uint
-		curr_pos := get_cursor_position(win)
+	// we compute the number of spaces required to clear a window and then
+	// let the write_rune function take care of properly moving the cursor
+	// through its own window isolation logic
+	space_num: uint
+	curr_pos := get_cursor_position(win)
 
-		switch mode {
-		case .After_Cursor:
-			space_in_same_line := width - (win.cursor.x + 1)
-			space_after_same_line := width * (height - ((win.cursor.y + 1) % height))
-			space_num = space_in_same_line + space_after_same_line
-			move_cursor(win, curr_pos.y, curr_pos.x + 1)
-		case .Before_Cursor:
-			space_num = win.cursor.x + 1 + win.cursor.y * width
-			move_cursor(win, 0, 0)
-		case .Everything:
-			space_num = (width + 1) * height
-			move_cursor(win, 0, 0)
-		}
-
-		for _ in 0 ..< space_num {
-			write_rune(win, ' ')
-		}
-
-		move_cursor(win, curr_pos.y, curr_pos.x)
+	switch mode {
+	case .After_Cursor:
+		space_in_same_line := width - (win.cursor.x + 1)
+		space_after_same_line := width * (height - ((win.cursor.y + 1) % height))
+		space_num = space_in_same_line + space_after_same_line
+		move_cursor(win, curr_pos.y, curr_pos.x + 1)
+	case .Before_Cursor:
+		space_num = win.cursor.x + 1 + win.cursor.y * width
+		move_cursor(win, 0, 0)
+	case .Everything:
+		space_num = (width + 1) * height
+		move_cursor(win, 0, 0)
 	}
+
+	for _ in 0 ..< space_num {
+		write_rune(win, ' ')
+	}
+
+	move_cursor(win, curr_pos.y, curr_pos.x)
 }
 
 clear_line :: proc(win: $T/^Window, mode: Clear_Mode) {
 	// TODO: implement clear line for windows with width and height not nil
-	raw.clear_line(&win.seq_builder, mode)
+	y := win.cursor.y
+	for x in 0 ..< win.cell_buffer.width {
+		move_cursor(win, y, x)
+		write_rune(win, ' ')
+	}
 }
 
 // This is used internally to figure out and update where the cursor will be after a string is written to the terminal
+// TODO: refactor to only care about one rune at a time
 _get_cursor_pos_from_string :: proc(win: $T/^Window, str: string) -> [2]uint {
 	calculate_cursor_pos :: proc(
 		cursor: ^Cursor_Position,
@@ -369,28 +393,20 @@ _get_cursor_pos_from_string :: proc(win: $T/^Window, str: string) -> [2]uint {
 		return new_pos
 	}
 
-	when type_of(win) == ^Screen {
-		term_size := get_term_size()
-		height := term_size.h
-		width := term_size.w
-		return calculate_cursor_pos(&win.cursor, height, width, str)
-	} else {
-		height, h_ok := win.height.?
-		width, w_ok := win.width.?
-
-		if h_ok && w_ok {
-			return calculate_cursor_pos(&win.cursor, height, width, str)
-		} else {
-			return [2]uint{win.cursor.x, win.cursor.y}
-		}
-	}
+	return calculate_cursor_pos(&win.cursor, win.cell_buffer.height, win.cell_buffer.width, str)
 }
 
 /*
 Writes a rune to the terminal
 */
 write_rune :: proc(win: $T/^Window, r: rune) {
-	strings.write_rune(&win.seq_builder, r)
+	curr_cell := Cell {
+		r    = r,
+		fg   = win.curr_styles.fg,
+		bg   = win.curr_styles.bg,
+		text = win.curr_styles.text,
+	}
+	cellbuf_set(&win.cell_buffer, .Back, win.cursor.y, win.cursor.x, curr_cell)
 	// the new cursor position has to be calculated after writing the rune
 	// otherwise the rune will be misplaced when blitted to terminal
 	r_bytes, r_len := utf8.encode_rune(r)
@@ -402,23 +418,13 @@ write_rune :: proc(win: $T/^Window, r: rune) {
 /*
 Writes a string to the terminal
 */
+// TODO: I think this is not caring about runes that leads to position overflowing cell_buffer???
 write_string :: proc(win: $T/^Window, str: string) {
-	when type_of(win) == ^Screen {
-		term_size := get_term_size()
-		win_width := term_size.w
-	} else {
-		win_width, w_ok := win.width.?
-		if !w_ok {
-			strings.write_string(&win.seq_builder, str)
-			return
-		}
-	}
-
 	// the string is written in chunks so that it doesn't overflow the  
 	// window in which it is contained
 	str_slice_start: uint
 	for str_slice_start < len(str) {
-		chunk_len := win_width - win.cursor.x
+		chunk_len := win.cell_buffer.width - win.cursor.x
 		str_slice_end := str_slice_start + chunk_len
 		if str_slice_end > cast(uint)len(str) {
 			str_slice_end = len(str)
@@ -429,16 +435,13 @@ write_string :: proc(win: $T/^Window, str: string) {
 		}
 
 		str_slice := str[str_slice_start:str_slice_end]
-		strings.write_string(&win.seq_builder, str_slice)
+		for r in str_slice do write_rune(win, r)
 
 		str_slice_start = str_slice_end
 
-		new_pos := _get_cursor_pos_from_string(win, str_slice)
-		win.cursor.x = new_pos.x
-		win.cursor.y = new_pos.y
 		// we try an empty string so that we can compute starting from the next character 
 		// that's going to be inserted
-		new_pos = _get_cursor_pos_from_string(win, " ")
+		new_pos := _get_cursor_pos_from_string(win, " ")
 		move_cursor(win, new_pos.y, new_pos.x)
 	}
 }
@@ -508,26 +511,15 @@ set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 }
 
 set_text_style :: proc(win: $T/^Window, styles: bit_set[Text_Style]) {
-	if styles != win.curr_styles.text {
-		raw.set_text_style(&win.seq_builder, styles)
-		win.curr_styles.text = styles
-	}
+	win.curr_styles.text = styles
 }
 
 set_color_style :: proc(win: $T/^Window, fg: Any_Color, bg: Any_Color) {
-	if fg != win.curr_styles.fg {
-		raw.set_fg_color_style(&win.seq_builder, fg)
-		win.curr_styles.fg = fg
-	}
-
-	if bg != win.curr_styles.bg {
-		raw.set_bg_color_style(&win.seq_builder, bg)
-		win.curr_styles.bg = bg
-	}
+	win.curr_styles.fg = fg
+	win.curr_styles.bg = bg
 }
 
 reset_styles :: proc(win: $T/^Window) {
-	raw.reset_styles(&win.seq_builder)
 	win.curr_styles = {}
 }
 
