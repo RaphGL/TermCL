@@ -68,10 +68,14 @@ cellbuf_resize :: proc(cb: ^Cell_Buffer, height, width: uint) {
 }
 
 cellbuf_get :: proc(cb: Cell_Buffer, type: Cell_Buffer_Type, y, x: uint) -> Cell {
+	x := x % cb.width
+	y := y % cb.height
 	return cb.cells[type][x + y * cb.width]
 }
 
 cellbuf_set :: proc(cb: ^Cell_Buffer, type: Cell_Buffer_Type, y, x: uint, cell: Cell) {
+	x := x % cb.width
+	y := y % cb.height
 	cb.cells[type][x + y * cb.width] = cell
 }
 
@@ -164,6 +168,8 @@ blit :: proc(win: $T/^Window) {
 	if win.height == 0 || win.width == 0 {
 		return
 	}
+
+	// TODO: determine and resize cell_buffer if necessary here
 
 	// this is needed to prevent the window from sharing the same style as the terminal
 	// this avoids messing up users' styles from one window to another
@@ -258,25 +264,8 @@ global_coord_from_window :: proc(win: $T/^Window, y, x: uint) -> Cursor_Position
 		y = y,
 	}
 
-	when type_of(win) == ^Screen {
-		term_size := get_term_size()
-		height := term_size.h
-		width := term_size.w
-	} else {
-		height, h_ok := win.height.?
-		width, w_ok := win.width.?
-
-		if !w_ok && !h_ok {
-			return cursor_pos
-		}
-	}
-
-	if width == 0 || height == 0 {
-		return {}
-	}
-
-	cursor_pos.y = (y % height) + win.y_offset
-	cursor_pos.x = (x % width) + win.x_offset
+	cursor_pos.y = (y % win.cell_buffer.height) + win.y_offset
+	cursor_pos.x = (x % win.cell_buffer.width) + win.x_offset
 	return cursor_pos
 }
 
@@ -290,10 +279,10 @@ window_coord_from_global :: proc(
 	cursor_pos: Cursor_Position,
 	in_window: bool,
 ) {
-	height, h_ok := win.height.?
-	width, w_ok := win.width.?
+	height := win.cell_buffer.height
+	width := win.cell_buffer.width
 
-	if !w_ok && !h_ok && (height == 0 || width == 0) {
+	if height == 0 || width == 0 {
 		return
 	}
 
@@ -370,30 +359,23 @@ clear_line :: proc(win: $T/^Window, mode: Clear_Mode) {
 
 // This is used internally to figure out and update where the cursor will be after a string is written to the terminal
 // TODO: refactor to only care about one rune at a time
-_get_cursor_pos_from_string :: proc(win: $T/^Window, str: string) -> [2]uint {
-	calculate_cursor_pos :: proc(
-		cursor: ^Cursor_Position,
-		height, width: uint,
-		str: string,
-	) -> [2]uint {
-		new_pos := [2]uint{cursor.x, cursor.y}
-		for r in str {
-			if new_pos.y >= height && r == '\n' {
-				new_pos.x = 0
-				continue
-			}
+_get_cursor_pos_from_rune :: proc(win: $T/^Window, r: rune) -> [2]uint {
+	height := win.cell_buffer.height
+	width := win.cell_buffer.width
 
-			if new_pos.x >= width || r == '\n' {
-				new_pos.y += 1
-				new_pos.x = 0
-			} else {
-				new_pos.x += 1
-			}
-		}
+	new_pos := [2]uint{win.cursor.x, win.cursor.y}
+	if new_pos.y >= height && r == '\n' {
+		new_pos.x = 0
 		return new_pos
 	}
 
-	return calculate_cursor_pos(&win.cursor, win.cell_buffer.height, win.cell_buffer.width, str)
+	if new_pos.x >= width || r == '\n' {
+		new_pos.y += 1
+		new_pos.x = 0
+	} else {
+		new_pos.x += 1
+	}
+	return new_pos
 }
 
 /*
@@ -409,40 +391,18 @@ write_rune :: proc(win: $T/^Window, r: rune) {
 	cellbuf_set(&win.cell_buffer, .Back, win.cursor.y, win.cursor.x, curr_cell)
 	// the new cursor position has to be calculated after writing the rune
 	// otherwise the rune will be misplaced when blitted to terminal
-	r_bytes, r_len := utf8.encode_rune(r)
-	r_str := string(r_bytes[:r_len])
-	new_pos := _get_cursor_pos_from_string(win, r_str)
+	new_pos := _get_cursor_pos_from_rune(win, r)
 	move_cursor(win, new_pos.y, new_pos.x)
 }
 
 /*
 Writes a string to the terminal
 */
-// TODO: I think this is not caring about runes that leads to position overflowing cell_buffer???
 write_string :: proc(win: $T/^Window, str: string) {
 	// the string is written in chunks so that it doesn't overflow the  
 	// window in which it is contained
-	str_slice_start: uint
-	for str_slice_start < len(str) {
-		chunk_len := win.cell_buffer.width - win.cursor.x
-		str_slice_end := str_slice_start + chunk_len
-		if str_slice_end > cast(uint)len(str) {
-			str_slice_end = len(str)
-		}
-
-		if str_slice_end == str_slice_start {
-			break
-		}
-
-		str_slice := str[str_slice_start:str_slice_end]
-		for r in str_slice do write_rune(win, r)
-
-		str_slice_start = str_slice_end
-
-		// we try an empty string so that we can compute starting from the next character 
-		// that's going to be inserted
-		new_pos := _get_cursor_pos_from_string(win, " ")
-		move_cursor(win, new_pos.y, new_pos.x)
+	for r in str {
+		write_rune(win, r)
 	}
 }
 
