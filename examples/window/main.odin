@@ -10,24 +10,22 @@ main :: proc() {
 
 	termsize := t.get_term_size()
 
-	msg := "Use WASD or arrow keys to move window and 'q' to quit."
-	window := t.init_window(termsize.h / 2, termsize.w / 2 - len(msg) / 2, 3, (uint)(len(msg) + 2))
+	msg := "Use WASD or arrow keys to move window and 'q' to quit. As you can see if I can writing eventually the text is going to wrap around."
+
+
+	window := t.init_window(termsize.h / 2, termsize.w / 2 - len(msg) / 2, 6, 55)
 	defer t.destroy_window(&window)
 
 	main_loop: for {
-		t.clear(&window, .Everything)
-		defer t.blit(&window)
-
 		t.clear(&s, .Everything)
+		defer t.blit(&window)
 		defer t.blit(&s)
 
 		t.set_color_style(&window, .Black, .White)
+		t.clear(&window, .Everything)
 		// this proves that no matter what the window will never be overflowed by moving the cursor
-		for i in 0 ..= 10 {
-			t.move_cursor(&window, cast(uint)i, 1)
-			t.write_string(&window, msg)
-		}
-		t.reset_styles(&window)
+		t.move_cursor(&window, 0, 0)
+		t.write_string(&window, msg)
 
 		input := t.read(&s) or_continue
 		kb_input := t.parse_keyboard_input(input) or_continue
@@ -45,7 +43,6 @@ main :: proc() {
 		case .Q:
 			break main_loop
 		}
-
 	}
 }
 

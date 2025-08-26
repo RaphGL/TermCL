@@ -4,8 +4,6 @@ import "base:runtime"
 import "core:fmt"
 import "core:os"
 import "core:strings"
-import "core:terminal/ansi"
-import "core:unicode/utf8"
 import "raw"
 
 Text_Style :: raw.Text_Style
@@ -26,15 +24,10 @@ Cell :: struct {
 	text: bit_set[Text_Style],
 }
 
-Cell_Buffer_Type :: enum {
-	Front,
-	Back,
-}
-
 Cell_Buffer :: struct {
 	// a double buffer used to diff before dispatching escape codes
 	// both cell buffers ought to always have the same size
-	cells:         [Cell_Buffer_Type][dynamic]Cell,
+	cells:         [dynamic]Cell,
 	width, height: uint,
 }
 
@@ -42,46 +35,37 @@ cellbuf_init :: proc(height, width: uint, allocator := context.allocator) -> Cel
 	cb := Cell_Buffer {
 		height = height,
 		width  = width,
+		cells  = make([dynamic]Cell, allocator),
 	}
-	cb.cells[.Back] = make([dynamic]Cell, allocator)
-	cb.cells[.Front] = make([dynamic]Cell, allocator)
 
-	cb_len := height * width + 1
-	resize(&cb.cells[.Back], cb_len)
-	resize(&cb.cells[.Front], cb_len)
+	cb_len := height * width
+	resize(&cb.cells, cb_len)
 	return cb
 }
 
 cellbuf_destroy :: proc(cb: ^Cell_Buffer) {
-	delete(cb.cells[.Back])
-	delete(cb.cells[.Front])
+	delete(cb.cells)
 	cb.height = 0
 	cb.width = 0
 }
 
 cellbuf_resize :: proc(cb: ^Cell_Buffer, height, width: uint) {
-	cb_len := height * width + 1
+	cb_len := height * width
 	cb.height = height
 	cb.width = width
-	resize(&cb.cells[.Back], cb_len)
-	resize(&cb.cells[.Front], cb_len)
+	resize(&cb.cells, cb_len)
 }
 
-cellbuf_get :: proc(cb: Cell_Buffer, type: Cell_Buffer_Type, y, x: uint) -> Cell {
-	x := x % cb.width
-	y := y % cb.height
-	return cb.cells[type][x + y * cb.width]
+cellbuf_get :: proc(cb: Cell_Buffer, y, x: uint) -> Cell {
+	constrained_x := x % cb.width
+	constrained_y := y % cb.height
+	return cb.cells[constrained_x + constrained_y * cb.width]
 }
 
-cellbuf_set :: proc(cb: ^Cell_Buffer, type: Cell_Buffer_Type, y, x: uint, cell: Cell) {
-	x := x % cb.width
-	y := y % cb.height
-	cb.cells[type][x + y * cb.width] = cell
-}
-
-// copies the contents of the back buffer to the frontbuffer
-cellbuf_swap :: proc(cb: ^Cell_Buffer) {
-	copy(cb.cells[.Front][:], cb.cells[.Back][:])
+cellbuf_set :: proc(cb: ^Cell_Buffer, y, x: uint, cell: Cell) {
+	constrained_x := x % cb.width
+	constrained_y := y % cb.height
+	cb.cells[constrained_x + constrained_y * cb.width] = cell
 }
 
 /*
@@ -111,6 +95,10 @@ Window :: struct {
 		fg:   Any_Color,
 		bg:   Any_Color,
 	},
+	/*
+	Double buffer used to store the cells in the terminal.
+	The double buffer allows diffing between current and previous frames to reduce work required by the terminal.
+	*/
 	cell_buffer:        Cell_Buffer,
 }
 
@@ -169,39 +157,36 @@ blit :: proc(win: $T/^Window) {
 		return
 	}
 
-	// TODO: determine and resize cell_buffer if necessary here
-
 	// this is needed to prevent the window from sharing the same style as the terminal
 	// this avoids messing up users' styles from one window to another
 	raw.set_fg_color_style(&win.seq_builder, win.curr_styles.fg)
 	raw.set_bg_color_style(&win.seq_builder, win.curr_styles.bg)
 	raw.set_text_style(&win.seq_builder, win.curr_styles.text)
 
-	/*
-	TODO optimizations:
-	- check empty runes before and after cursor on ^Screen if empty use raw.clear()
-	- only print changes between back and front buffers
-	*/
+	curr_styles := win.curr_styles
 
 	for y in 0 ..< win.cell_buffer.height {
 		global_pos := global_coord_from_window(win, y, 0)
 		raw.move_cursor(&win.seq_builder, global_pos.y, global_pos.x)
 
 		for x in 0 ..< win.cell_buffer.width {
-			curr_cell := cellbuf_get(win.cell_buffer, .Back, y, x)
-			if win.curr_styles.fg != curr_cell.fg {
-				raw.set_fg_color_style(&win.seq_builder, curr_cell.fg)
-				win.curr_styles.fg = curr_cell.fg
-			}
+			curr_cell := cellbuf_get(win.cell_buffer, y, x)
 
-			if win.curr_styles.bg != curr_cell.bg {
-				raw.set_bg_color_style(&win.seq_builder, curr_cell.bg)
-				win.curr_styles.bg = curr_cell.bg
-			}
+			/* OPTIMIZATION: don't change styles unless they change between cells */{
+				if curr_styles.fg != curr_cell.fg {
+					raw.set_fg_color_style(&win.seq_builder, curr_cell.fg)
+					curr_styles.fg = curr_cell.fg
+				}
 
-			if win.curr_styles.text != curr_cell.text {
-				raw.set_text_style(&win.seq_builder, curr_cell.text)
-				win.curr_styles.text = curr_cell.text
+				if curr_styles.bg != curr_cell.bg {
+					raw.set_bg_color_style(&win.seq_builder, curr_cell.bg)
+					curr_styles.bg = curr_cell.bg
+				}
+
+				if curr_styles.text != curr_cell.text {
+					raw.set_text_style(&win.seq_builder, curr_cell.text)
+					curr_styles.text = curr_cell.text
+				}
 			}
 
 			strings.write_rune(&win.seq_builder, curr_cell.r)
@@ -210,7 +195,28 @@ blit :: proc(win: $T/^Window) {
 
 	fmt.print(strings.to_string(win.seq_builder), flush = true)
 	strings.builder_reset(&win.seq_builder)
-	cellbuf_swap(&win.cell_buffer)
+	// cellbuf_swap(&win.cell_buffer)
+
+	// we need to keep the internal buffers in sync with the terminal size
+	// so that we can render things correctly
+	termsize := get_term_size()
+	when type_of(win) == ^Screen {
+		if win.cell_buffer.height != termsize.h && win.cell_buffer.width != termsize.w {
+			cellbuf_resize(&win.cell_buffer, termsize.h, termsize.w)
+		}
+	} else {
+		win_h, win_h_ok := win.height.?
+		win_w, win_w_ok := win.width.?
+
+		if !win_h_ok || !win_w_ok {
+			if !win_h_ok do win_h = termsize.h
+			if !win_w_ok do win_w = termsize.w
+
+			if win.cell_buffer.height != win_h && win.cell_buffer.width != win_w {
+				cellbuf_resize(&win.cell_buffer, win_h, win_w)
+			}
+		}
+	}
 }
 
 /*
@@ -349,16 +355,26 @@ clear :: proc(win: $T/^Window, mode: Clear_Mode) {
 }
 
 clear_line :: proc(win: $T/^Window, mode: Clear_Mode) {
-	// TODO: implement clear line for windows with width and height not nil
-	y := win.cursor.y
-	for x in 0 ..< win.cell_buffer.width {
-		move_cursor(win, y, x)
+	from, to: uint
+	switch mode {
+	case .After_Cursor:
+		from = win.cursor.x + 1
+		to = win.cell_buffer.width
+	case .Before_Cursor:
+		from = 0
+		to = win.cursor.x - 1
+	case .Everything:
+		from = 0
+		to = win.cell_buffer.width
+	}
+
+	for x in from ..< to {
+		move_cursor(win, win.cursor.y, x)
 		write_rune(win, ' ')
 	}
 }
 
-// This is used internally to figure out and update where the cursor will be after a string is written to the terminal
-// TODO: refactor to only care about one rune at a time
+// This is used internally to figure out and update where the cursor will be after a rune is written to the terminal
 _get_cursor_pos_from_rune :: proc(win: $T/^Window, r: rune) -> [2]uint {
 	height := win.cell_buffer.height
 	width := win.cell_buffer.width
@@ -388,7 +404,7 @@ write_rune :: proc(win: $T/^Window, r: rune) {
 		bg   = win.curr_styles.bg,
 		text = win.curr_styles.text,
 	}
-	cellbuf_set(&win.cell_buffer, .Back, win.cursor.y, win.cursor.x, curr_cell)
+	cellbuf_set(&win.cell_buffer, win.cursor.y, win.cursor.x, curr_cell)
 	// the new cursor position has to be calculated after writing the rune
 	// otherwise the rune will be misplaced when blitted to terminal
 	new_pos := _get_cursor_pos_from_rune(win, r)
