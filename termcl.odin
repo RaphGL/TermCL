@@ -192,6 +192,9 @@ blit :: proc(win: $T/^Window) {
 			strings.write_rune(&win.seq_builder, curr_cell.r)
 		}
 	}
+	// we move the cursor back to where the window left it 
+	// just in case if the user is relying on the terminal drawing the cursor
+	raw.move_cursor(&win.seq_builder, win.cursor.y, win.cursor.x)
 
 	fmt.print(strings.to_string(win.seq_builder), flush = true)
 	strings.builder_reset(&win.seq_builder)
