@@ -379,17 +379,15 @@ _get_cursor_pos_from_rune :: proc(win: $T/^Window, r: rune) -> [2]uint {
 	height := win.cell_buffer.height
 	width := win.cell_buffer.width
 
-	new_pos := [2]uint{win.cursor.x, win.cursor.y}
-	if new_pos.y >= height && r == '\n' {
+	new_pos := [2]uint{win.cursor.x + 1, win.cursor.y}
+	if new_pos.x >= width {
 		new_pos.x = 0
-		return new_pos
+		new_pos.y += 1
 	}
 
-	if new_pos.x >= width || r == '\n' {
-		new_pos.y += 1
+	if new_pos.y >= height {
+		new_pos.y = 0
 		new_pos.x = 0
-	} else {
-		new_pos.x += 1
 	}
 	return new_pos
 }
