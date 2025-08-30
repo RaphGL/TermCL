@@ -20,7 +20,6 @@ enable_alt_buffer :: raw.enable_alt_buffer
 Cell :: struct {
 	r:      rune,
 	styles: Styles,
-	text:   bit_set[Text_Style],
 }
 
 Cell_Buffer :: struct {
@@ -199,8 +198,8 @@ blit :: proc(win: $T/^Window) {
 						raw.set_fg_color_style(&win.seq_builder, curr_cell.styles.fg)
 						raw.set_bg_color_style(&win.seq_builder, curr_cell.styles.bg)
 					}
-					raw.set_text_style(&win.seq_builder, curr_cell.text)
-					curr_styles.text = curr_cell.text
+					raw.set_text_style(&win.seq_builder, curr_cell.styles.text)
+					curr_styles.text = curr_cell.styles.text
 				}
 			}
 		}
