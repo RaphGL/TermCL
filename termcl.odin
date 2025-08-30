@@ -18,10 +18,9 @@ hide_cursor :: raw.hide_cursor
 enable_alt_buffer :: raw.enable_alt_buffer
 
 Cell :: struct {
-	r:    rune,
-	fg:   Any_Color,
-	bg:   Any_Color,
-	text: bit_set[Text_Style],
+	r:      rune,
+	styles: Styles,
+	text:   bit_set[Text_Style],
 }
 
 Cell_Buffer :: struct {
@@ -68,6 +67,12 @@ cellbuf_set :: proc(cb: ^Cell_Buffer, y, x: uint, cell: Cell) {
 	cb.cells[constrained_x + constrained_y * cb.width] = cell
 }
 
+Styles :: struct {
+	text: bit_set[Text_Style],
+	fg:   Any_Color,
+	bg:   Any_Color,
+}
+
 /*
 A bounded "drawing" box in the terminal.
 
@@ -90,11 +95,7 @@ Window :: struct {
 	these styles are guaranteed because they're always the first thing
 	pushed to the `seq_builder` after a `blit`
 	 */
-	curr_styles:        struct {
-		text: bit_set[Text_Style],
-		fg:   Any_Color,
-		bg:   Any_Color,
-	},
+	curr_styles:        Styles,
 	/*
 	Double buffer used to store the cells in the terminal.
 	The double buffer allows diffing between current and previous frames to reduce work required by the terminal.
@@ -164,6 +165,8 @@ blit :: proc(win: $T/^Window) {
 	raw.set_text_style(&win.seq_builder, win.curr_styles.text)
 
 	curr_styles := win.curr_styles
+	// always zero valued
+	reset_styles: Styles
 
 	for y in 0 ..< win.cell_buffer.height {
 		global_pos := global_coord_from_window(win, y, 0)
@@ -171,25 +174,35 @@ blit :: proc(win: $T/^Window) {
 
 		for x in 0 ..< win.cell_buffer.width {
 			curr_cell := cellbuf_get(win.cell_buffer, y, x)
+			defer strings.write_rune(&win.seq_builder, curr_cell.r)
 
 			/* OPTIMIZATION: don't change styles unless they change between cells */{
-				if curr_styles.fg != curr_cell.fg {
-					raw.set_fg_color_style(&win.seq_builder, curr_cell.fg)
-					curr_styles.fg = curr_cell.fg
+				if curr_styles != reset_styles && curr_cell.styles == reset_styles {
+					raw.reset_styles(&win.seq_builder)
+					curr_styles = curr_cell.styles
+					continue
 				}
 
-				if curr_styles.bg != curr_cell.bg {
-					raw.set_bg_color_style(&win.seq_builder, curr_cell.bg)
-					curr_styles.bg = curr_cell.bg
+				if curr_styles.fg != curr_cell.styles.fg {
+					raw.set_fg_color_style(&win.seq_builder, curr_cell.styles.fg)
+					curr_styles.fg = curr_cell.styles.fg
 				}
 
-				if curr_styles.text != curr_cell.text {
+				if curr_styles.bg != curr_cell.styles.bg {
+					raw.set_bg_color_style(&win.seq_builder, curr_cell.styles.bg)
+					curr_styles.bg = curr_cell.styles.bg
+				}
+
+				if curr_styles.text != curr_cell.styles.text {
+					if curr_styles.text == nil {
+						raw.reset_styles(&win.seq_builder)
+						raw.set_fg_color_style(&win.seq_builder, curr_cell.styles.fg)
+						raw.set_bg_color_style(&win.seq_builder, curr_cell.styles.bg)
+					}
 					raw.set_text_style(&win.seq_builder, curr_cell.text)
 					curr_styles.text = curr_cell.text
 				}
 			}
-
-			strings.write_rune(&win.seq_builder, curr_cell.r)
 		}
 	}
 	// we move the cursor back to where the window left it 
@@ -400,10 +413,8 @@ Writes a rune to the terminal
 */
 write_rune :: proc(win: $T/^Window, r: rune) {
 	curr_cell := Cell {
-		r    = r,
-		fg   = win.curr_styles.fg,
-		bg   = win.curr_styles.bg,
-		text = win.curr_styles.text,
+		r      = r,
+		styles = win.curr_styles,
 	}
 	cellbuf_set(&win.cell_buffer, win.cursor.y, win.cursor.x, curr_cell)
 	// the new cursor position has to be calculated after writing the rune
