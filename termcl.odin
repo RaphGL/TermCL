@@ -173,33 +173,32 @@ blit :: proc(win: $T/^Window) {
 
 		for x in 0 ..< win.cell_buffer.width {
 			curr_cell := cellbuf_get(win.cell_buffer, y, x)
-			defer strings.write_rune(&win.seq_builder, curr_cell.r)
+			defer {
+				curr_styles = curr_cell.styles
+				strings.write_rune(&win.seq_builder, curr_cell.r)
+			}
 
 			/* OPTIMIZATION: don't change styles unless they change between cells */{
 				if curr_styles != reset_styles && curr_cell.styles == reset_styles {
 					raw.reset_styles(&win.seq_builder)
-					curr_styles = curr_cell.styles
 					continue
 				}
 
 				if curr_styles.fg != curr_cell.styles.fg {
 					raw.set_fg_color_style(&win.seq_builder, curr_cell.styles.fg)
-					curr_styles.fg = curr_cell.styles.fg
 				}
 
 				if curr_styles.bg != curr_cell.styles.bg {
 					raw.set_bg_color_style(&win.seq_builder, curr_cell.styles.bg)
-					curr_styles.bg = curr_cell.styles.bg
 				}
 
 				if curr_styles.text != curr_cell.styles.text {
-					if curr_styles.text == nil {
+					if curr_cell.styles.text == nil {
 						raw.reset_styles(&win.seq_builder)
 						raw.set_fg_color_style(&win.seq_builder, curr_cell.styles.fg)
 						raw.set_bg_color_style(&win.seq_builder, curr_cell.styles.bg)
 					}
 					raw.set_text_style(&win.seq_builder, curr_cell.styles.text)
-					curr_styles.text = curr_cell.styles.text
 				}
 			}
 		}
