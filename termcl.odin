@@ -22,9 +22,12 @@ Cell :: struct {
 	styles: Styles,
 }
 
+/*
+used internally to store cells in before they're blitted to the screen
+doing this allows us to reduce the amount of escape codes sent to the terminal
+by inspecting state and only sending the states that changed
+*/
 Cell_Buffer :: struct {
-	// a double buffer used to diff before dispatching escape codes
-	// both cell buffers ought to always have the same size
 	cells:         [dynamic]Cell,
 	width, height: uint,
 }
@@ -48,6 +51,7 @@ cellbuf_destroy :: proc(cb: ^Cell_Buffer) {
 }
 
 cellbuf_resize :: proc(cb: ^Cell_Buffer, height, width: uint) {
+	if cb.height == height && cb.width == width do return
 	cb_len := height * width
 	cb.height = height
 	cb.width = width
@@ -107,14 +111,14 @@ Initialize a window.
 
 **Inputs**
 - `x`, `y`: offsets from (0, 0) coordinates of the terminal
-- `height`, `width`: size of the window
+- `height`, `width`: size in cells of the window
 
 **Returns**
 Initialized window. Window is freed with `destroy_window`
 
 Note:
-You should never init a window with size zero unless you're going to assign the sizes later.
-using a window with width and height of zero will result in a division by zero.
+- A height or width with size zero makes so that nothing happens when the window is blitted
+- A height or width of size nil makes it stretch to terminal length on that axis
 */
 init_window :: proc(
 	y, x: uint,
@@ -124,7 +128,6 @@ init_window :: proc(
 	h, h_ok := height.?
 	w, w_ok := width.?
 	termsize := get_term_size()
-
 	cell_buffer := cellbuf_init(h if h_ok else termsize.h, w if w_ok else termsize.w, allocator)
 
 	return Window {
@@ -143,6 +146,51 @@ Destroys all memory allocated by the window
 destroy_window :: proc(win: ^Window) {
 	strings.builder_destroy(&win.seq_builder)
 	cellbuf_destroy(&win.cell_buffer)
+}
+
+/*
+Changes the size of the window.
+
+**Inputs**
+- `height`, `width`: size in cells of the window
+
+NOTE:
+- A height or width with size zero makes so that nothing happens when the window is blitted
+- A height or width of size nil makes it stretch to terminal length on that axis
+*/
+resize_window :: proc(win: $T/^Window, height, width: Maybe(uint)) {
+	when type_of(win) == ^Screen {
+		win.height = nil
+		win.width = nil
+	} else {
+		win.height = height
+		win.width = width
+	}
+
+	termsize := get_term_size_via_syscall()
+	cellbuf_resize(
+		&win.cell_buffer,
+		height if height != nil else termsize.h,
+		width if width != nil else termsize.w,
+	)
+}
+
+Window_Size :: struct {
+	h, w: uint,
+}
+
+/*
+Get the window size.
+
+**Inputs**
+- `screen`: the terminal screen
+
+**Returns**
+The screen size, where both the width and height are measured
+by the number of terminal cells.
+*/
+get_window_size :: proc(win: $T/^Window) -> Window_Size {
+	return Window_Size{h = win.cell_buffer.height, w = win.cell_buffer.width}
 }
 
 /*
@@ -240,7 +288,7 @@ Screen :: struct {
 	using winbuf:       Window,
 	original_termstate: Terminal_State,
 	input_buf:          [512]byte,
-	size:               Screen_Size,
+	size:               Window_Size,
 }
 
 /*
@@ -507,32 +555,6 @@ set_color_style :: proc(win: $T/^Window, fg: Any_Color, bg: Any_Color) {
 
 reset_styles :: proc(win: $T/^Window) {
 	win.curr_styles = {}
-}
-
-Screen_Size :: struct {
-	h, w: uint,
-}
-
-/*
-Get the terminal screen size.
-
-**Inputs**
-- `screen`: the terminal screen
-
-**Returns**
-The screen size, where both the width and height are measured
-by the number of terminal cells.
-*/
-get_term_size :: proc() -> Screen_Size {
-	termsize, ok := get_term_size_via_syscall()
-	if !ok {
-		panic(
-			`Failed to fetch terminal size. Your platform is probably not support
-			Please create an issue: https://github.com/RaphGL/TermCL/issues`,
-		)
-	}
-
-	return termsize
 }
 
 Cursor_Position :: struct {

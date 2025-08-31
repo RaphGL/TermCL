@@ -67,11 +67,22 @@ change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	}
 }
 
-get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
+/*
+Get terminal size
+
+NOTE: this functional does syscalls to figure out the size of the terminal.
+For most use cases, passing `Screen` to `get_window_size` achieves the same result
+and doesn't need to do any system calls.
+
+You should only use this function if you don't have access to `Screen` and still somehow
+need to figure out the terminal size. Otherwise this function might or might not cause
+your program to slow down a bit due to OS context switching.
+*/
+get_term_size :: proc() -> Screen_Size {
 	sbi: windows.CONSOLE_SCREEN_BUFFER_INFO
 
 	if !windows.GetConsoleScreenBufferInfo(windows.HANDLE(os.stdout), &sbi) {
-		return {}, false
+		panic("Failed to get terminal size")
 	}
 
 	screen_size := Screen_Size {
@@ -79,7 +90,7 @@ get_term_size_via_syscall :: proc() -> (Screen_Size, bool) {
 		h = uint(sbi.srWindow.Bottom - sbi.srWindow.Top) + 1,
 	}
 
-	return screen_size, true
+	return screen_size
 }
 
 read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {

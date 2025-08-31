@@ -12,11 +12,15 @@ PAINT_BUFFER_HEIGHT :: 30
 
 Paint_Buffer :: struct {
 	buffer: [PAINT_BUFFER_HEIGHT][PAINT_BUFFER_WIDTH]Maybe(t.Color_8),
+	screen: ^t.Screen,
 	window: t.Window,
 }
 
 paint_buffer_init :: proc(s: ^t.Screen) -> Paint_Buffer {
-	return Paint_Buffer{window = t.init_window(0, 0, PAINT_BUFFER_HEIGHT, PAINT_BUFFER_WIDTH)}
+	return Paint_Buffer {
+		screen = s,
+		window = t.init_window(0, 0, PAINT_BUFFER_HEIGHT, PAINT_BUFFER_WIDTH),
+	}
 }
 
 paint_buffer_destroy :: proc(pbuf: ^Paint_Buffer) {
@@ -24,7 +28,7 @@ paint_buffer_destroy :: proc(pbuf: ^Paint_Buffer) {
 }
 
 paint_buffer_to_screen :: proc(pbuf: ^Paint_Buffer) {
-	termsize := t.get_term_size()
+	termsize := t.get_window_size(pbuf.screen)
 	pbuf.window.x_offset = termsize.w / 2 - PAINT_BUFFER_WIDTH / 2
 	pbuf.window.y_offset = termsize.h / 2 - PAINT_BUFFER_HEIGHT / 2
 
@@ -69,7 +73,7 @@ main :: proc() {
 			paint_buffer_to_screen(&pbuf)
 		}
 
-		termsize := t.get_term_size()
+		termsize := t.get_window_size(&s)
 
 		help_msg := "Draw (Right Click) / Delete (Left Click) / Quit (Q or CTRL + C)"
 		t.move_cursor(&s, termsize.h - 2, termsize.w / 2 - len(help_msg) / 2)

@@ -40,7 +40,7 @@ main :: proc() {
 		style: Style,
 	}
 
-	size := t.get_term_size()
+	size := t.get_window_size(&screen)
 	height, width := int(size.h), int(size.w)
 	glyphs := []rune{'@', '#', '&', '*', '=', '%', 'Z', 'A'}
 	attrs := []t.Text_Style{.Bold, .Dim, .Italic, .Crossed}

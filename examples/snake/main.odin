@@ -18,7 +18,7 @@ Snake :: struct {
 }
 
 get_term_center :: proc(s: ^t.Screen) -> [2]uint {
-	termsize := t.get_term_size()
+	termsize := t.get_window_size(s)
 	pos := [2]uint{termsize.w / 2, termsize.h / 2}
 	return pos
 }
