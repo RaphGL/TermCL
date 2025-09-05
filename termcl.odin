@@ -167,12 +167,11 @@ resize_window :: proc(win: $T/^Window, height, width: Maybe(uint)) {
 		win.width = width
 	}
 
-	termsize := get_term_size_via_syscall()
-	cellbuf_resize(
-		&win.cell_buffer,
-		height if height != nil else termsize.h,
-		width if width != nil else termsize.w,
-	)
+	h, h_ok := height.?
+	w, w_ok := width.?
+
+	termsize := get_term_size()
+	cellbuf_resize(&win.cell_buffer, h if h_ok else termsize.h, w if w_ok else termsize.w)
 }
 
 Window_Size :: struct {
