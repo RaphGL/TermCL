@@ -158,8 +158,8 @@ NOTE:
 - A height or width with size zero makes so that nothing happens when the window is blitted
 - A height or width of size nil makes it stretch to terminal length on that axis
 */
-resize_window :: proc(win: $T/^Window, height, width: Maybe(uint)) {
-	when type_of(win) == ^Screen {
+resize_window :: proc(win: ^Window, height, width: Maybe(uint)) {
+	if type_of(win) == ^Screen {
 		win.height = nil
 		win.width = nil
 	} else {
@@ -188,7 +188,7 @@ Get the window size.
 The screen size, where both the width and height are measured
 by the number of terminal cells.
 */
-get_window_size :: proc(win: $T/^Window) -> Window_Size {
+get_window_size :: proc(win: ^Window) -> Window_Size {
 	return Window_Size{h = win.cell_buffer.height, w = win.cell_buffer.width}
 }
 
@@ -199,7 +199,7 @@ Sends instructions to terminal
 - `win`: A pointer to a window 
 
 */
-blit :: proc(win: $T/^Window) {
+blit :: proc(win: ^Window) {
 	if win.height == 0 || win.width == 0 {
 		return
 	}
@@ -250,7 +250,7 @@ blit :: proc(win: $T/^Window) {
 			}
 		}
 	}
-	// we move the cursor back to where the window left it 
+	// we move the cursor back to where the window left it
 	// just in case if the user is relying on the terminal drawing the cursor
 	raw.move_cursor(&win.seq_builder, win.cursor.y, win.cursor.x)
 
@@ -261,7 +261,7 @@ blit :: proc(win: $T/^Window) {
 	// we need to keep the internal buffers in sync with the terminal size
 	// so that we can render things correctly
 	termsize := get_term_size()
-	when type_of(win) == ^Screen {
+	if type_of(win) == ^Screen {
 		if win.cell_buffer.height != termsize.h && win.cell_buffer.width != termsize.w {
 			cellbuf_resize(&win.cell_buffer, termsize.h, termsize.w)
 		}
@@ -325,7 +325,7 @@ destroy_screen :: proc(screen: ^Screen) {
 /*
 Converts window coordinates to the global terminal coordinates
 */
-global_coord_from_window :: proc(win: $T/^Window, y, x: uint) -> Cursor_Position {
+global_coord_from_window :: proc(win: ^Window, y, x: uint) -> Cursor_Position {
 	cursor_pos := Cursor_Position {
 		x = x,
 		y = y,
@@ -370,7 +370,7 @@ window_coord_from_global :: proc(
 /*
 Changes the position of the window cursor
 */
-move_cursor :: proc(win: $T/^Window, y, x: uint) {
+move_cursor :: proc(win: ^Window, y, x: uint) {
 	win.cursor = {
 		x = x,
 		y = y,
@@ -384,7 +384,7 @@ Clear the screen.
 - `win`: the window whose contents will be cleared
 - `mode`: how the clearing will be done
 */
-clear :: proc(win: $T/^Window, mode: Clear_Mode) {
+clear :: proc(win: ^Window, mode: Clear_Mode) {
 	height := win.cell_buffer.height
 	width := win.cell_buffer.width
 
@@ -415,7 +415,7 @@ clear :: proc(win: $T/^Window, mode: Clear_Mode) {
 	move_cursor(win, curr_pos.y, curr_pos.x)
 }
 
-clear_line :: proc(win: $T/^Window, mode: Clear_Mode) {
+clear_line :: proc(win: ^Window, mode: Clear_Mode) {
 	from, to: uint
 	switch mode {
 	case .After_Cursor:
@@ -436,7 +436,7 @@ clear_line :: proc(win: $T/^Window, mode: Clear_Mode) {
 }
 
 // This is used internally to figure out and update where the cursor will be after a rune is written to the terminal
-_get_cursor_pos_from_rune :: proc(win: $T/^Window, r: rune) -> [2]uint {
+_get_cursor_pos_from_rune :: proc(win: ^Window, r: rune) -> [2]uint {
 	height := win.cell_buffer.height
 	width := win.cell_buffer.width
 
@@ -456,7 +456,7 @@ _get_cursor_pos_from_rune :: proc(win: $T/^Window, r: rune) -> [2]uint {
 /*
 Writes a rune to the terminal
 */
-write_rune :: proc(win: $T/^Window, r: rune) {
+write_rune :: proc(win: ^Window, r: rune) {
 	curr_cell := Cell {
 		r      = r,
 		styles = win.curr_styles,
@@ -471,8 +471,8 @@ write_rune :: proc(win: $T/^Window, r: rune) {
 /*
 Writes a string to the terminal
 */
-write_string :: proc(win: $T/^Window, str: string) {
-	// the string is written in chunks so that it doesn't overflow the  
+write_string :: proc(win: ^Window, str: string) {
+	// the string is written in chunks so that it doesn't overflow the
 	// window in which it is contained
 	for r in str {
 		write_rune(win, r)
@@ -482,7 +482,7 @@ write_string :: proc(win: $T/^Window, str: string) {
 /*
 Write a formatted string to the window.
 */
-writef :: proc(win: $T/^Window, format: string, args: ..any) {
+writef :: proc(win: ^Window, format: string, args: ..any) {
 	str_builder: strings.Builder
 	_, err := strings.builder_init(&str_builder, allocator = win.allocator)
 	if err != nil {
@@ -537,22 +537,22 @@ set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	}
 
 	hide_cursor(false)
-	// when changing modes some OSes (like windows) might put garbage that we don't care about 
+	// when changing modes some OSes (like windows) might put garbage that we don't care about
 	// in stdin potentially causing nonblocking reads to block on the first read, so to avoid this,
 	// stdin is always flushed when the mode is changed
 	os.flush(os.stdin)
 }
 
-set_text_style :: proc(win: $T/^Window, styles: bit_set[Text_Style]) {
+set_text_style :: proc(win: ^Window, styles: bit_set[Text_Style]) {
 	win.curr_styles.text = styles
 }
 
-set_color_style :: proc(win: $T/^Window, fg: Any_Color, bg: Any_Color) {
+set_color_style :: proc(win: ^Window, fg: Any_Color, bg: Any_Color) {
 	win.curr_styles.fg = fg
 	win.curr_styles.bg = bg
 }
 
-reset_styles :: proc(win: $T/^Window) {
+reset_styles :: proc(win: ^Window) {
 	win.curr_styles = {}
 }
 
@@ -563,7 +563,7 @@ Cursor_Position :: struct {
 /*
 Get the current cursor position.
 */
-get_cursor_position :: #force_inline proc(win: $T/^Window) -> Cursor_Position {
+get_cursor_position :: #force_inline proc(win: ^Window) -> Cursor_Position {
 	return win.cursor
 }
 
