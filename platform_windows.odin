@@ -78,14 +78,14 @@ You should only use this function if you don't have access to `Screen` and still
 need to figure out the terminal size. Otherwise this function might or might not cause
 your program to slow down a bit due to OS context switching.
 */
-get_term_size :: proc() -> Screen_Size {
+get_term_size :: proc() -> Window_Size {
 	sbi: windows.CONSOLE_SCREEN_BUFFER_INFO
 
 	if !windows.GetConsoleScreenBufferInfo(windows.HANDLE(os.stdout), &sbi) {
 		panic("Failed to get terminal size")
 	}
 
-	screen_size := Screen_Size {
+	screen_size := Window_Size {
 		w = uint(sbi.srWindow.Right - sbi.srWindow.Left) + 1,
 		h = uint(sbi.srWindow.Bottom - sbi.srWindow.Top) + 1,
 	}
