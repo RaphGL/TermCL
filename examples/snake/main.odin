@@ -252,15 +252,14 @@ main :: proc() {
 		defer time.stopwatch_reset(&stopwatch)
 		t.clear(&s, .Everything)
 
-		input, _ := t.read(&s)
-		keys, kb_has_input := t.parse_keyboard_input(input)
+		input := t.read(&s)
+		kb_input, kb_ok := input.(t.Keyboard_Input)
 
-		if kb_has_input && (keys.key == .Q) {
-			break
+		if kb_input.key == .Q {
+			return
 		}
 
-
-		snake_handle_input(&s, &game, keys)
+		snake_handle_input(&s, &game, kb_input)
 
 		for {
 			duration := time.stopwatch_duration(stopwatch)

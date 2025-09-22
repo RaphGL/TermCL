@@ -1,20 +1,20 @@
+#+private
 #+build linux, darwin, netbsd, freebsd, openbsd
 package termcl
 
+import "core:os"
 import "core:sys/posix"
 
 Terminal_State :: struct {
 	state: posix.termios,
 }
 
-@(private)
 get_terminal_state :: proc() -> (Terminal_State, bool) {
 	termstate: posix.termios
 	ok := posix.tcgetattr(posix.STDIN_FILENO, &termstate) == .OK
 	return Terminal_State{state = termstate}, ok
 }
 
-@(private)
 change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	termstate, ok := get_terminal_state()
 	if !ok {
@@ -45,14 +45,18 @@ change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	}
 }
 
-read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
+raw_read :: proc(screen: ^Screen) -> (user_input: []byte, has_input: bool) {
 	stdin_pollfd := posix.pollfd {
 		fd     = posix.STDIN_FILENO,
 		events = {.IN},
 	}
 
 	if posix.poll(&stdin_pollfd, 1, 8) > 0 {
-		return read_blocking(screen)
+		bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
+		if err != nil {
+			panic("failing to get user input")
+		}
+		return screen.input_buf[:bytes_read], true
 	}
 
 	return {}, false

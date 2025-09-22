@@ -17,6 +17,10 @@ enable_mouse :: raw.enable_mouse
 hide_cursor :: raw.hide_cursor
 enable_alt_buffer :: raw.enable_alt_buffer
 
+get_term_size :: proc() -> Window_Size {
+	return get_term_size_via_syscall()
+}
+
 Cell :: struct {
 	r:      rune,
 	styles: Styles,

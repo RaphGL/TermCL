@@ -1,3 +1,4 @@
+#+private
 package termcl
 
 import "core:os"
@@ -11,7 +12,6 @@ Terminal_State :: struct {
 	output_mode:     windows.DWORD,
 }
 
-@(private)
 get_terminal_state :: proc() -> (Terminal_State, bool) {
 	termstate: Terminal_State
 	windows.GetConsoleMode(windows.HANDLE(os.stdout), &termstate.output_mode)
@@ -23,7 +23,6 @@ get_terminal_state :: proc() -> (Terminal_State, bool) {
 	return termstate, true
 }
 
-@(private)
 change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	termstate, ok := get_terminal_state()
 	if !ok {
@@ -78,7 +77,7 @@ You should only use this function if you don't have access to `Screen` and still
 need to figure out the terminal size. Otherwise this function might or might not cause
 your program to slow down a bit due to OS context switching.
 */
-get_term_size :: proc() -> Window_Size {
+get_term_size_via_syscall :: proc() -> Window_Size {
 	sbi: windows.CONSOLE_SCREEN_BUFFER_INFO
 
 	if !windows.GetConsoleScreenBufferInfo(windows.HANDLE(os.stdout), &sbi) {
@@ -93,7 +92,7 @@ get_term_size :: proc() -> Window_Size {
 	return screen_size
 }
 
-read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
+raw_read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 	num_events: u32
 	if !windows.GetNumberOfConsoleInputEvents(windows.HANDLE(os.stdin), &num_events) {
 		error_id := windows.GetLastError()
@@ -116,7 +115,11 @@ read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
 	}
 
 	if num_events > 0 {
-		return read_blocking(screen)
+		bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
+		if err != nil {
+			panic("failing to get user input")
+		}
+		return screen.input_buf[:bytes_read], true
 	}
 
 	return

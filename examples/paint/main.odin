@@ -24,6 +24,8 @@ paint_buffer_init :: proc(s: ^t.Screen) -> Paint_Buffer {
 }
 
 paint_buffer_destroy :: proc(pbuf: ^Paint_Buffer) {
+	t.clear(&pbuf.window, .Everything)
+	t.blit(&pbuf.window)
 	t.destroy_window(&pbuf.window)
 }
 
@@ -88,31 +90,30 @@ main :: proc() {
 		}
 
 
-		input := t.read(&s) or_continue
-
-		keyboard, kb_has_input := t.parse_keyboard_input(input)
-		if kb_has_input && (keyboard.mod == .Ctrl && keyboard.key == .C) || keyboard.key == .Q {
-			break
-		}
-
-		mouse := t.parse_mouse_input(input) or_continue
-		win_cursor := t.window_coord_from_global(
-			&pbuf.window,
-			mouse.coord.y,
-			mouse.coord.x,
-		) or_continue
-
-		#partial switch mouse.key {
-		case .Left:
-			if mouse.mod == nil && .Pressed in mouse.event {
-				paint_buffer_set_cell(&pbuf, win_cursor.y, win_cursor.x, .Black)
+		input := t.read(&s)
+		switch i in input {
+		case t.Keyboard_Input:
+			if (i.mod == .Ctrl && i.key == .C) || i.key == .Q {
+				return
 			}
-		case .Right:
-			if mouse.mod == nil && .Pressed in mouse.event {
-				paint_buffer_set_cell(&pbuf, win_cursor.y, win_cursor.x, nil)
+		case t.Mouse_Input:
+			win_cursor := t.window_coord_from_global(
+				&pbuf.window,
+				i.coord.y,
+				i.coord.x,
+			) or_continue
+
+			#partial switch i.key {
+			case .Left:
+				if i.mod == nil && .Pressed in i.event {
+					paint_buffer_set_cell(&pbuf, win_cursor.y, win_cursor.x, .Black)
+				}
+			case .Right:
+				if i.mod == nil && .Pressed in i.event {
+					paint_buffer_set_cell(&pbuf, win_cursor.y, win_cursor.x, nil)
+				}
 			}
 		}
-
 	}
 }
 

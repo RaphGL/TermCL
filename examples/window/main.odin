@@ -36,10 +36,9 @@ main :: proc() {
 		t.move_cursor(&window, 2, 0)
 		t.write_string(&window, msg)
 
-		input := t.read(&s) or_continue
-		kb_input := t.parse_keyboard_input(input) or_continue
+		kb_input, kb_ok := t.read(&s).(t.Keyboard_Input)
 
-		#partial switch kb_input.key {
+		if kb_ok do #partial switch kb_input.key {
 		case .Arrow_Left, .A:
 			window.x_offset -= 1
 		case .Arrow_Right, .D:

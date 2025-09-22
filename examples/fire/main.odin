@@ -195,14 +195,14 @@ MoveParticles :: proc() {
 		for x in 0 ..< txcols {
 			// Get the current age of the particle.
 			tage := fire[y][x]
-			//Moves particle left (-1) or right (1) or keeps it in current column (0). 
+			//Moves particle left (-1) or right (1) or keeps it in current column (0).
 			xx := rand.int_max(3) - 1 + x
 			// Wrap around the screen.
 			if xx < 0 do xx = txcols - 1
 			if xx > txcols - 1 do xx = 0
 			// Set the particle age.
 			tage += coolmap[y - 1][xx] + 1
-			// Make sure the age is in range.         
+			// Make sure the age is in range.
 			if tage < 0 do tage = 0
 			if tage > (MAXAGE - 1) do tage = MAXAGE - 1
 			fire[y - 1][xx] = tage

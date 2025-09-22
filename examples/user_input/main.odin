@@ -16,34 +16,24 @@ main :: proc() {
 		t.clear(&s, .Everything)
 		defer t.blit(&s)
 
-		input := t.read_blocking(&s) or_continue
-
 		t.move_cursor(&s, 0, 0)
 		t.write(&s, "Press `Esc` to exit")
 
 		t.move_cursor(&s, 2, 0)
-		t.writef(&s, "Bytes: %v", input)
 
-		kb_input, has_kb_input := t.parse_keyboard_input(input)
+		input := t.read_blocking(&s)
 
-		t.move_cursor(&s, 4, 0)
-		t.write(&s, "Keyboard: ")
-		if has_kb_input && kb_input.key != .None {
-			t.writef(&s, "%v", kb_input)
-		} else {
-			t.write(&s, "None")
+		switch i in input {
+		case t.Keyboard_Input:
+			t.move_cursor(&s, 4, 0)
+			t.write(&s, "Keyboard: ")
+			t.writef(&s, "%v", i)
+			if i.key == .Escape do return
+		case t.Mouse_Input:
+			t.move_cursor(&s, 6, 0)
+			t.write(&s, "Mouse: ")
+			t.writef(&s, "%v", i)
 		}
-
-		mouse_input, has_mouse_input := t.parse_mouse_input(input)
-		t.move_cursor(&s, 6, 0)
-		t.write(&s, "Mouse: ")
-		if has_mouse_input {
-			t.writef(&s, "%v", mouse_input)
-		} else {
-			t.write(&s, "None")
-		}
-
-		if kb_input.key == .Escape do break
 	}
 }
 

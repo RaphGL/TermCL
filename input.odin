@@ -5,21 +5,51 @@ import "core:os"
 import "core:strconv"
 import "core:unicode"
 
-Input :: distinct []byte
+Input :: union {
+	Keyboard_Input,
+	Mouse_Input,
+}
+
+read :: proc(screen: ^Screen) -> Input {
+	input, has_input := raw_read(screen)
+	if !has_input do return nil
+
+	mouse_input, mouse_ok := parse_mouse_input(input[:])
+	if mouse_ok {
+		return mouse_input
+	}
+
+	kb_input, kb_ok := parse_keyboard_input(input[:])
+	if kb_ok {
+		return kb_input
+	}
+
+	return nil
+}
 
 /*
 Reads input from the terminal.
 The read blocks execution until a value is read.  
 If you want it to not block, use `read` instead.
 */
-read_blocking :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
+read_blocking :: proc(screen: ^Screen) -> Input {
 	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
 	if err != nil {
-		fmt.eprintln("failing to get user input")
-		os.exit(1)
+		panic("failing to get user input")
 	}
 
-	return Input(screen.input_buf[:bytes_read]), bytes_read > 0
+	mouse_input, mouse_ok := parse_mouse_input(screen.input_buf[:bytes_read])
+	if mouse_ok {
+		return mouse_input
+	}
+
+	kb_input, kb_ok := parse_keyboard_input(screen.input_buf[:bytes_read])
+	if kb_ok {
+		return kb_input
+	}
+
+
+	return nil
 }
 
 Key :: enum {
@@ -150,7 +180,7 @@ check what value it is processed into.
 
 For example, `.Escape` is either Esc, Ctrl + [ and Ctrl + 3 to the terminal.
 */
-parse_keyboard_input :: proc(input: Input) -> (keyboard_input: Keyboard_Input, has_input: bool) {
+parse_keyboard_input :: proc(input: []byte) -> (keyboard_input: Keyboard_Input, has_input: bool) {
 	_alnum_to_key :: proc(b: byte) -> (key: Key, ok: bool) {
 		switch b {
 		case '\x1b':
@@ -536,7 +566,7 @@ Note: mouse input is not always guaranteed. The user might be running the progra
 a tty or the terminal emulator might just not support mouse input.
 
 */
-parse_mouse_input :: proc(input: Input) -> (mouse_input: Mouse_Input, has_input: bool) {
+parse_mouse_input :: proc(input: []byte) -> (mouse_input: Mouse_Input, has_input: bool) {
 	// the mouse input we support is SGR escape code based
 	if len(input) < 6 do return
 
