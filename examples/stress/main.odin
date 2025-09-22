@@ -27,6 +27,7 @@ import "core:time"
 
 
 main :: proc() {
+	tb.set_backend()
 	screen := t.init_screen()
 	frames: int
 
