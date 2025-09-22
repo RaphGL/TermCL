@@ -1,8 +1,10 @@
 package main
 
 import t "../.."
+import tb "../../term"
 
 main :: proc() {
+	tb.set_backend()
 	s := t.init_screen()
 	defer t.destroy_screen(&s)
 	t.set_term_mode(&s, .Raw)

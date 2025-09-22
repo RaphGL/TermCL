@@ -20,6 +20,7 @@
 package stress
 
 import t "../.."
+import tb "../../term"
 import "core:fmt"
 import "core:math/rand"
 import "core:time"

@@ -1,6 +1,7 @@
 package main
 
 import t "../../"
+import tb "../../term"
 
 Brush :: struct {
 	color: t.Color_8,
@@ -58,6 +59,7 @@ paint_buffer_set_cell :: proc(pbuf: ^Paint_Buffer, y, x: uint, color: Maybe(t.Co
 }
 
 main :: proc() {
+	tb.set_backend()
 	s := t.init_screen()
 	defer t.destroy_screen(&s)
 	t.set_term_mode(&s, .Raw)

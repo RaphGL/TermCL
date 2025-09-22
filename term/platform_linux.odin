@@ -1,6 +1,6 @@
-#+private
-package termcl
+package term
 
+import t ".."
 import "core:c"
 import "core:sys/linux"
 
@@ -15,7 +15,7 @@ You should only use this function if you don't have access to `Screen` and still
 need to figure out the terminal size. Otherwise this function might or might not cause
 your program to slow down a bit due to OS context switching.
 */
-get_term_size_via_syscall :: proc() -> Window_Size {
+get_term_size :: proc() -> t.Window_Size {
 	winsize :: struct {
 		ws_row, ws_col:       c.ushort,
 		ws_xpixel, ws_ypixel: c.ushort,
@@ -26,7 +26,7 @@ get_term_size_via_syscall :: proc() -> Window_Size {
 		panic("Failed to get terminal size")
 	}
 
-	win := Window_Size {
+	win := t.Window_Size {
 		h = uint(w.ws_row),
 		w = uint(w.ws_col),
 	}

@@ -19,6 +19,7 @@
 package main
 
 import t "../.."
+import tb "../../term"
 import "core:math/rand"
 
 // Set the dimensions
@@ -30,6 +31,7 @@ coolmap: [txrows][txcols]int
 
 // Executes the game intro.
 main :: proc() {
+	tb.set_backend()
 	screen := t.init_screen()
 	defer t.destroy_screen(&screen)
 	t.clear(&screen, .Everything)

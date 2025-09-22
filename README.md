@@ -36,8 +36,14 @@ The library is compatible with any ANSI escape code compatible terminal, which i
 The library should also work on windows and any posix compatible operating system.
 
 ## How it works
-The library uses a Screen struct to represent the terminal. To start a CLI/TUI you need to call `init_screen`,
-this function calls the operating system to get information on the terminal state.
+The library uses a multiple backend architecture, so to start you need to pick your backend.
+
+Currently there's:
+- term: outputs terminal escape codes for modern terminals. This is probably what you want most of the time.
+- sdl3: uses SDL3 to render to a window. This is good for tools that need the extra performance, or more flexibility with how you draw pixels, or you just want 
+to have a terminal-like UI
+
+Once you've picked your backend you should set it and then initialze the screen.
 
 > [!NOTE]
 > you should call destroy_screen before you exit to restore the terminal state otherwise you might end up with a weird behaving terminal
@@ -60,8 +66,10 @@ Here's a few minor things to take into consideration:
 package main
 
 import t "termcl"
+import "termcl/term"
 
 main :: proc() {
+    term.set_backend()
     scr := t.init_screen()
     defer t.destroy_screen(&scr)
     t.clear(&scr, .Everything)

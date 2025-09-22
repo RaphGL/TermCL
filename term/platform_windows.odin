@@ -1,6 +1,6 @@
-#+private
-package termcl
+package term
 
+import t ".."
 import "core:os"
 import "core:sys/windows"
 
@@ -23,7 +23,7 @@ get_terminal_state :: proc() -> (Terminal_State, bool) {
 	return termstate, true
 }
 
-change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
+change_terminal_mode :: proc(screen: ^t.Screen, mode: t.Term_Mode) {
 	termstate, ok := get_terminal_state()
 	if !ok {
 		panic("failed to get terminal state")
@@ -70,21 +70,21 @@ change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 Get terminal size
 
 NOTE: this functional does syscalls to figure out the size of the terminal.
-For most use cases, passing `Screen` to `get_window_size` achieves the same result
+For most use cases, passing `t.Screen` to `get_window_size` achieves the same result
 and doesn't need to do any system calls.
 
-You should only use this function if you don't have access to `Screen` and still somehow
+You should only use this function if you don't have access to `t.Screen` and still somehow
 need to figure out the terminal size. Otherwise this function might or might not cause
 your program to slow down a bit due to OS context switching.
 */
-get_term_size_via_syscall :: proc() -> Window_Size {
+get_term_size :: proc() -> t.Window_Size {
 	sbi: windows.CONSOLE_SCREEN_BUFFER_INFO
 
-	if !windows.GetConsoleScreenBufferInfo(windows.HANDLE(os.stdout), &sbi) {
+	if !windows.t.GetConsoleScreenBufferInfo(windows.HANDLE(os.stdout), &sbi) {
 		panic("Failed to get terminal size")
 	}
 
-	screen_size := Window_Size {
+	screen_size := t.Window_Size {
 		w = uint(sbi.srWindow.Right - sbi.srWindow.Left) + 1,
 		h = uint(sbi.srWindow.Bottom - sbi.srWindow.Top) + 1,
 	}
@@ -92,7 +92,7 @@ get_term_size_via_syscall :: proc() -> Window_Size {
 	return screen_size
 }
 
-raw_read :: proc(screen: ^Screen) -> (user_input: Input, has_input: bool) {
+raw_read :: proc(screen: ^t.Screen) -> (user_input: Input, has_input: bool) {
 	num_events: u32
 	if !windows.GetNumberOfConsoleInputEvents(windows.HANDLE(os.stdin), &num_events) {
 		error_id := windows.GetLastError()

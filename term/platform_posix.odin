@@ -1,7 +1,7 @@
-#+private
 #+build linux, darwin, netbsd, freebsd, openbsd
-package termcl
+package term
 
+import t ".."
 import "core:os"
 import "core:sys/posix"
 
@@ -15,7 +15,7 @@ get_terminal_state :: proc() -> (Terminal_State, bool) {
 	return Terminal_State{state = termstate}, ok
 }
 
-change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
+change_terminal_mode :: proc(screen: ^t.Screen, mode: t.Term_Mode) {
 	termstate, ok := get_terminal_state()
 	if !ok {
 		panic("failed to get terminal state")
@@ -37,7 +37,7 @@ change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 		raw.c_lflag -= {.ECHO, .ICANON}
 
 	case .Restored:
-		raw = screen.original_termstate.state
+		raw = orig_termstate.state
 	}
 
 	if posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw) != .OK {
@@ -45,7 +45,7 @@ change_terminal_mode :: proc(screen: ^Screen, mode: Term_Mode) {
 	}
 }
 
-raw_read :: proc(screen: ^Screen) -> (user_input: []byte, has_input: bool) {
+raw_read :: proc(screen: ^t.Screen) -> (user_input: []byte, has_input: bool) {
 	stdin_pollfd := posix.pollfd {
 		fd     = posix.STDIN_FILENO,
 		events = {.IN},

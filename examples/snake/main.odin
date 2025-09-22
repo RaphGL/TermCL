@@ -1,6 +1,7 @@
 package main
 
 import t "../.."
+import tb "../../term"
 import "core:math/rand"
 import "core:time"
 
@@ -229,6 +230,7 @@ game_tick :: proc(game: ^Game, s: ^t.Screen) {
 
 
 main :: proc() {
+	tb.set_backend()
 	s := t.init_screen()
 	defer t.destroy_screen(&s)
 	t.set_term_mode(&s, .Cbreak)

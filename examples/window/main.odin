@@ -1,6 +1,7 @@
 package main
 
 import t "../.."
+import tb "../../term"
 
 main :: proc() {
 	s := t.init_screen()

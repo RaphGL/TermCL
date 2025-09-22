@@ -17,8 +17,92 @@ enable_mouse :: raw.enable_mouse
 hide_cursor :: raw.hide_cursor
 enable_alt_buffer :: raw.enable_alt_buffer
 
+Render_VTable :: struct {
+	init_screen:    proc(allocator: runtime.Allocator) -> Screen,
+	destroy_screen: proc(screen: ^Screen),
+	get_term_size:  proc() -> Window_Size,
+	set_term_mode:  proc(screen: ^Screen, mode: Term_Mode),
+	blit:           proc(win: ^Window),
+	read:           proc(screen: ^Screen) -> Input,
+	read_blocking:  proc(screen: ^Screen) -> Input,
+}
+
+@(private)
+render_vtable: Render_VTable
+
+/*
+Initializes the terminal screen and creates a backup of the state the terminal
+was in when this function was called.
+
+Note: A screen **OUGHT** to be destroyed before exitting the program.
+Destroying the screen causes the terminal to be restored to its previous state.
+If the state is not restored your terminal might start misbehaving.
+*/
+init_screen :: proc(allocator := context.allocator) -> Screen {
+	if render_vtable.init_screen == nil {
+		panic("missing backend, please set one before initializing the screen")
+	}
+	return render_vtable.init_screen(allocator)
+}
+
+/*
+Restores the terminal to its original state and frees all memory allocated by the `t.Screen`
+*/
+destroy_screen :: proc(screen: ^Screen) {
+	render_vtable.destroy_screen(screen)
+}
+
+/*
+Change terminal mode.
+
+This changes how the terminal behaves.
+By default the terminal will preprocess inputs and handle handle signals,
+preventing you to have full access to user input.
+
+**Inputs**
+- `screen`: the terminal screen
+- `mode`: how terminal should behave from now on
+*/
+set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
+	render_vtable.set_term_mode(screen, mode)
+}
+
 get_term_size :: proc() -> Window_Size {
-	return get_term_size_via_syscall()
+	return render_vtable.get_term_size()
+}
+
+/*
+Sends instructions to terminal
+
+**Inputs**
+- `win`: A pointer to a window 
+
+*/
+blit :: proc(win: ^Window) {
+	render_vtable.blit(win)
+}
+
+read :: proc(screen: ^Screen) -> Input {
+	return render_vtable.read(screen)
+}
+
+/*
+Reads input from the terminal.
+The read blocks execution until a value is read.  
+If you want it to not block, use `read` instead.
+*/
+read_blocking :: proc(screen: ^Screen) -> Input {
+	return render_vtable.read_blocking(screen)
+}
+
+/*
+Set the current rendering backend
+
+This sets the VTable for the functions that are in charge of dealing
+with anything that is related with displaying the TUI to the screen.
+*/
+set_backend :: proc "contextless" (backend: Render_VTable) {
+	render_vtable = backend
 }
 
 Cell :: struct {
@@ -131,7 +215,7 @@ init_window :: proc(
 ) -> Window {
 	h, h_ok := height.?
 	w, w_ok := width.?
-	termsize := get_term_size()
+	termsize := render_vtable.get_term_size()
 	cell_buffer := cellbuf_init(h if h_ok else termsize.h, w if w_ok else termsize.w, allocator)
 
 	return Window {
@@ -174,7 +258,7 @@ resize_window :: proc(win: ^Window, height, width: Maybe(uint)) {
 	h, h_ok := height.?
 	w, w_ok := width.?
 
-	termsize := get_term_size()
+	termsize := render_vtable.get_term_size()
 	cellbuf_resize(&win.cell_buffer, h if h_ok else termsize.h, w if w_ok else termsize.w)
 }
 
@@ -197,133 +281,12 @@ get_window_size :: proc(win: ^Window) -> Window_Size {
 }
 
 /*
-Sends instructions to terminal
-
-**Inputs**
-- `win`: A pointer to a window 
-
-*/
-blit :: proc(win: ^Window) {
-	if win.height == 0 || win.width == 0 {
-		return
-	}
-
-	// this is needed to prevent the window from sharing the same style as the terminal
-	// this avoids messing up users' styles from one window to another
-	raw.set_fg_color_style(&win.seq_builder, win.curr_styles.fg)
-	raw.set_bg_color_style(&win.seq_builder, win.curr_styles.bg)
-	raw.set_text_style(&win.seq_builder, win.curr_styles.text)
-
-	curr_styles := win.curr_styles
-	// always zero valued
-	reset_styles: Styles
-
-	for y in 0 ..< win.cell_buffer.height {
-		global_pos := global_coord_from_window(win, y, 0)
-		raw.move_cursor(&win.seq_builder, global_pos.y, global_pos.x)
-
-		for x in 0 ..< win.cell_buffer.width {
-			curr_cell := cellbuf_get(win.cell_buffer, y, x)
-			defer {
-				curr_styles = curr_cell.styles
-				strings.write_rune(&win.seq_builder, curr_cell.r)
-			}
-
-			/* OPTIMIZATION: don't change styles unless they change between cells */{
-				if curr_styles != reset_styles && curr_cell.styles == reset_styles {
-					raw.reset_styles(&win.seq_builder)
-					continue
-				}
-
-				if curr_styles.fg != curr_cell.styles.fg {
-					raw.set_fg_color_style(&win.seq_builder, curr_cell.styles.fg)
-				}
-
-				if curr_styles.bg != curr_cell.styles.bg {
-					raw.set_bg_color_style(&win.seq_builder, curr_cell.styles.bg)
-				}
-
-				if curr_styles.text != curr_cell.styles.text {
-					if curr_cell.styles.text == nil {
-						raw.reset_styles(&win.seq_builder)
-						raw.set_fg_color_style(&win.seq_builder, curr_cell.styles.fg)
-						raw.set_bg_color_style(&win.seq_builder, curr_cell.styles.bg)
-					}
-					raw.set_text_style(&win.seq_builder, curr_cell.styles.text)
-				}
-			}
-		}
-	}
-	// we move the cursor back to where the window left it
-	// just in case if the user is relying on the terminal drawing the cursor
-	raw.move_cursor(&win.seq_builder, win.cursor.y, win.cursor.x)
-
-	fmt.print(strings.to_string(win.seq_builder), flush = true)
-	strings.builder_reset(&win.seq_builder)
-	// cellbuf_swap(&win.cell_buffer)
-
-	// we need to keep the internal buffers in sync with the terminal size
-	// so that we can render things correctly
-	termsize := get_term_size()
-	if type_of(win) == ^Screen {
-		if win.cell_buffer.height != termsize.h && win.cell_buffer.width != termsize.w {
-			cellbuf_resize(&win.cell_buffer, termsize.h, termsize.w)
-		}
-	} else {
-		win_h, win_h_ok := win.height.?
-		win_w, win_w_ok := win.width.?
-
-		if !win_h_ok || !win_w_ok {
-			if !win_h_ok do win_h = termsize.h
-			if !win_w_ok do win_w = termsize.w
-
-			if win.cell_buffer.height != win_h && win.cell_buffer.width != win_w {
-				cellbuf_resize(&win.cell_buffer, win_h, win_w)
-			}
-		}
-	}
-}
-
-/*
 Screen is a window for the entire terminal screen. It is a superset of `Window` and can be used anywhere a window can.
 */
 Screen :: struct {
-	using winbuf:       Window,
-	original_termstate: Terminal_State,
-	input_buf:          [512]byte,
-	size:               Window_Size,
-}
-
-/*
-Initializes the terminal screen and creates a backup of the state the terminal
-was in when this function was called.
-
-Note: A screen **OUGHT** to be destroyed before exitting the program.
-Destroying the screen causes the terminal to be restored to its previous state.
-If the state is not restored your terminal might start misbehaving.
-*/
-init_screen :: proc(allocator := context.allocator) -> Screen {
-	context.allocator = allocator
-
-	termstate, ok := get_terminal_state()
-	if !ok {
-		panic("failed to get terminal state")
-	}
-
-	// TODO: get cursor position from terminal on init
-	return Screen {
-		original_termstate = termstate,
-		winbuf = init_window(0, 0, nil, nil, allocator = allocator),
-	}
-}
-
-/*
-Restores the terminal to its original state and frees all memory allocated by the `Screen`
-*/
-destroy_screen :: proc(screen: ^Screen) {
-	set_term_mode(screen, .Restored)
-	destroy_window(&screen.winbuf)
-	enable_alt_buffer(false)
+	using winbuf: Window,
+	input_buf:    [512]byte,
+	size:         Window_Size,
 }
 
 /*
@@ -514,37 +477,6 @@ Term_Mode :: enum {
 	Restored,
 	// A sort of "soft" raw mode that still allows the terminal to handle signals
 	Cbreak,
-}
-
-/*
-Change terminal mode.
-
-This changes how the terminal behaves.
-By default the terminal will preprocess inputs and handle handle signals,
-preventing you to have full access to user input.
-
-**Inputs**
-- `screen`: the terminal screen
-- `mode`: how terminal should behave from now on
-*/
-set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
-	change_terminal_mode(screen, mode)
-
-	#partial switch mode {
-	case .Restored:
-		enable_alt_buffer(false)
-		enable_mouse(false)
-
-	case .Raw:
-		enable_alt_buffer(true)
-		raw.enable_mouse(true)
-	}
-
-	hide_cursor(false)
-	// when changing modes some OSes (like windows) might put garbage that we don't care about
-	// in stdin potentially causing nonblocking reads to block on the first read, so to avoid this,
-	// stdin is always flushed when the mode is changed
-	os.flush(os.stdin)
 }
 
 set_text_style :: proc(win: ^Window, styles: bit_set[Text_Style]) {
