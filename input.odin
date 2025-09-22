@@ -27,27 +27,37 @@ read :: proc(screen: ^Screen) -> Input {
 	return nil
 }
 
+read_raw :: proc(screen: ^Screen) -> (input: []byte, ok: bool) {
+	return raw_read(screen)
+}
+
+read_raw_blocking :: proc(screen: ^Screen) -> (input: []byte, ok: bool) {
+	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
+	if err != nil {
+		panic("failing to get user input")
+	}
+
+	return screen.input_buf[:bytes_read], bytes_read > 0
+}
+
 /*
 Reads input from the terminal.
 The read blocks execution until a value is read.  
 If you want it to not block, use `read` instead.
 */
 read_blocking :: proc(screen: ^Screen) -> Input {
-	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
-	if err != nil {
-		panic("failing to get user input")
-	}
+	input, input_ok := read_raw_blocking(screen)
+	if !input_ok do return nil
 
-	mouse_input, mouse_ok := parse_mouse_input(screen.input_buf[:bytes_read])
+	mouse_input, mouse_ok := parse_mouse_input(input)
 	if mouse_ok {
 		return mouse_input
 	}
 
-	kb_input, kb_ok := parse_keyboard_input(screen.input_buf[:bytes_read])
+	kb_input, kb_ok := parse_keyboard_input(input)
 	if kb_ok {
 		return kb_input
 	}
-
 
 	return nil
 }
