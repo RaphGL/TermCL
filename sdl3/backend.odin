@@ -5,12 +5,18 @@ import "core:c"
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:unicode/utf8"
 import "vendor:sdl3"
+import "vendor:sdl3/ttf"
 
 @(private)
 g_window: ^sdl3.Window
 @(private)
 g_renderer: ^sdl3.Renderer
+@(private)
+g_font: ^ttf.Font
+@(private)
+g_text_textures: map[t.Styles]map[rune]^sdl3.Texture
 
 set_backend :: proc() {
 	t.set_backend(
@@ -35,39 +41,89 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 		panic("failed to initialize virtual terminal")
 	}
 
+	if !ttf.Init() {
+		fmt.eprintln(sdl3.GetError())
+		panic("failed to load font")
+	}
+
 	screen: t.Screen
 	screen.allocator = allocator
 
-	if !sdl3.CreateWindowAndRenderer("", 800, 600, {.RESIZABLE}, &g_window, &g_renderer) {
+	// TODO: dont hardcode font
+	g_font = ttf.OpenFont("/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf", 15)
+
+	if !sdl3.CreateWindowAndRenderer("", 1000, 800, {.RESIZABLE}, &g_window, &g_renderer) {
 		fmt.eprintln(sdl3.GetError())
 		panic("failed to initialize virtual terminal")
 	}
+
+	g_text_textures = make(map[t.Styles]map[rune]^sdl3.Texture)
 
 	screen.winbuf = t.init_window(0, 0, nil, nil)
 	return screen
 }
 
 destroy_screen :: proc(screen: ^t.Screen) {
+	ttf.CloseFont(g_font)
+
+	for _, runes in g_text_textures {
+		for _, texture in runes {
+			sdl3.DestroyTexture(texture)
+		}
+		delete(runes)
+	}
+
 	t.destroy_window(&screen.winbuf)
 	sdl3.DestroyWindow(g_window)
 	sdl3.DestroyRenderer(g_renderer)
 	sdl3.Quit()
 }
 
-// TODO: implement properly
-// TODO: make cell size change depending on font instead
-get_term_size :: proc() -> t.Window_Size {
-	cell_width: f32 = 10
-	cell_height: f32 = 16
-	win_w, win_h: c.int
-	sdl3.GetWindowSize(g_window, &win_w, &win_h)
-	return t.Window_Size {
-		h = uint(f32(win_h) / f32(cell_height)),
-		w = uint(f32(win_w) / f32(cell_width)),
-	}
+get_cell_size :: proc() -> (cell_h, cell_w: uint) {
+	cell_width, cell_height: c.int
+	ttf.GetStringSize(g_font, " ", len(" "), &cell_width, &cell_height)
+	return cast(uint)cell_height, cast(uint)cell_width
 }
 
+get_term_size :: proc() -> t.Window_Size {
+	win_w, win_h: c.int
+	sdl3.GetWindowSize(g_window, &win_w, &win_h)
+	cell_h, cell_w := get_cell_size()
+
+	return t.Window_Size{h = uint(f32(win_h) / f32(cell_h)), w = uint(f32(win_w) / f32(cell_w))}
+}
+
+
 blit :: proc(win: ^t.Window) {
+	get_sdl_color :: proc(color: t.Any_Color) -> sdl3.Color {
+		sdl_color: sdl3.Color
+		switch c in color {
+		case t.Color_RGB:
+			sdl_color.rgb = c.rgb
+			sdl_color.a = 0xFF
+
+		case t.Color_8:
+			switch c {
+			case .Black:
+				sdl_color = {0x28, 0x2A, 0x36, 0xFF}
+			case .Blue:
+				sdl_color = {0x62, 0x72, 0xA4, 0xFF}
+			case .Cyan:
+				sdl_color = {0x8B, 0xE9, 0xFD, 0xFF}
+			case .Green:
+				sdl_color = {0x50, 0xFA, 0x7B, 0xFF}
+			case .Magenta:
+				sdl_color = {0xFF, 0x79, 0xC6, 0xFF}
+			case .Red:
+				sdl_color = {0xFF, 0x55, 0x55, 0xFF}
+			case .White:
+				sdl_color = {0xF8, 0xF8, 0xF2, 0xFF}
+			case .Yellow:
+				sdl_color = {0xF1, 0xFA, 0x8C, 0xFF}
+			}
+		}
+		return sdl_color
+	}
 	// TODO: fix subtype check
 	// if type_of(win) == ^t.Screen {
 	// 	panic("only `t.Screen` is supported for now")
@@ -79,33 +135,53 @@ blit :: proc(win: ^t.Window) {
 
 	termsize := get_term_size()
 	x_coord, y_coord: uint
-	t.cellbuf_resize(&win.cell_buffer, termsize.h, termsize.w)
 
+	cell_h, cell_w := get_cell_size()
 	for y in 0 ..< win.cell_buffer.height {
-		y_coord = termsize.h * y
+		y_coord = cast(uint)cell_h * y
 		for x in 0 ..< win.cell_buffer.width {
-			x_coord = termsize.w * x
+			x_coord = cast(uint)cell_w * x
 			curr_cell := t.cellbuf_get(win.cell_buffer, y, x)
-			#partial switch color in curr_cell.styles.bg {
-			case t.Color_RGB:
-				sdl3.SetRenderDrawColor(g_renderer, color.r, color.g, color.b, 0xFF)
+
+			fg_color := get_sdl_color(
+				curr_cell.styles.fg if curr_cell.styles.fg != nil else .White,
+			)
+			bg_color := get_sdl_color(
+				curr_cell.styles.bg if curr_cell.styles.bg != nil else .Black,
+			)
+
+			if curr_cell.styles not_in g_text_textures {
+				g_text_textures[curr_cell.styles] = make(map[rune]^sdl3.Texture)
+			}
+			if curr_cell.r not_in g_text_textures[curr_cell.styles] {
+				rune_surface := ttf.RenderGlyph_Blended(g_font, cast(u32)curr_cell.r, fg_color)
+				rune_texture := sdl3.CreateTextureFromSurface(g_renderer, rune_surface)
+				sdl3.DestroySurface(rune_surface)
+				runes_map := &g_text_textures[curr_cell.styles]
+				runes_map[curr_cell.r] = rune_texture
 			}
 
+			curr_text := g_text_textures[curr_cell.styles][curr_cell.r]
 			rect := sdl3.FRect {
 				x = cast(f32)x_coord,
 				y = cast(f32)y_coord,
-				w = cast(f32)termsize.w,
-				h = cast(f32)termsize.h,
+				w = cast(f32)cell_w,
+				h = cast(f32)cell_h,
 			}
+			sdl3.SetRenderDrawColor(g_renderer, bg_color.r, bg_color.g, bg_color.b, bg_color.a)
 			sdl3.RenderFillRect(g_renderer, &rect)
-
+			sdl3.RenderTexture(g_renderer, curr_text, nil, &rect)
 		}
 	}
+	termsize = get_term_size()
+	t.cellbuf_resize(&win.cell_buffer, termsize.h, termsize.w)
 }
 
 main :: proc() {
+	set_backend()
 	s := init_screen()
 	defer destroy_screen(&s)
+
 
 	for {
 		defer blit(&s)
@@ -117,6 +193,10 @@ main :: proc() {
 			}
 		case t.Mouse_Input:
 		}
+
+		t.move_cursor(&s, 0, 0)
+		t.set_color_style(&s, t.Color_RGB{0xff, 0xff, 0xff}, t.Color_RGB{0xff, 0, 0})
+		t.write(&s, "Hello World")
 	}
 }
 

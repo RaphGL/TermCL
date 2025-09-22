@@ -33,9 +33,7 @@ Color_8 :: enum {
 RGB color. This is should be supported by every modern terminal.
 In case you need to support an older terminals, use `Color_8` instead
 */
-Color_RGB :: struct {
-	r, g, b: u8,
-}
+Color_RGB :: [3]u8
 
 Any_Color :: union {
 	Color_8,
