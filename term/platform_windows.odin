@@ -49,7 +49,7 @@ change_terminal_mode :: proc(screen: ^t.Screen, mode: t.Term_Mode) {
 		termstate.input_mode &= ~windows.ENABLE_ECHO_INPUT
 
 	case .Restored:
-		termstate = screen.original_termstate
+		termstate = orig_termstate
 	}
 
 	if !windows.SetConsoleMode(windows.HANDLE(os.stdout), termstate.output_mode) ||
@@ -80,7 +80,7 @@ your program to slow down a bit due to OS context switching.
 get_term_size :: proc() -> t.Window_Size {
 	sbi: windows.CONSOLE_SCREEN_BUFFER_INFO
 
-	if !windows.t.GetConsoleScreenBufferInfo(windows.HANDLE(os.stdout), &sbi) {
+	if !windows.GetConsoleScreenBufferInfo(windows.HANDLE(os.stdout), &sbi) {
 		panic("Failed to get terminal size")
 	}
 
@@ -92,7 +92,7 @@ get_term_size :: proc() -> t.Window_Size {
 	return screen_size
 }
 
-raw_read :: proc(screen: ^t.Screen) -> (user_input: Input, has_input: bool) {
+raw_read :: proc(screen: ^t.Screen) -> (user_input: []byte, has_input: bool) {
 	num_events: u32
 	if !windows.GetNumberOfConsoleInputEvents(windows.HANDLE(os.stdin), &num_events) {
 		error_id := windows.GetLastError()
