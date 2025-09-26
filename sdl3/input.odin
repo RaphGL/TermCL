@@ -1,11 +1,17 @@
 package termcl_sdl3
 
 import t ".."
+import "core:os"
 import "vendor:sdl3"
 
 read :: proc(screen: ^t.Screen) -> t.Input {
 	e: sdl3.Event
 	for sdl3.PollEvent(&e) {
+		// TODO: consider other approach for quitting? idk
+		if e.type == .QUIT {
+			os.exit(0)
+		}
+
 		#partial switch e.type {
 		case .KEY_DOWN:
 			kb: t.Keyboard_Input

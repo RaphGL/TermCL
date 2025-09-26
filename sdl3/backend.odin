@@ -15,8 +15,6 @@ g_window: ^sdl3.Window
 g_renderer: ^sdl3.Renderer
 @(private)
 g_font: ^ttf.Font
-@(private)
-g_text_textures: map[t.Styles]map[rune]^sdl3.Texture
 
 set_backend :: proc() {
 	t.set_backend(
@@ -32,7 +30,6 @@ set_backend :: proc() {
 }
 
 // we don't do anything. for a GUI raw vs cooked doesn't make a different
-// TODO: consider how to handle close window button pressed
 set_term_mode :: proc(screen: ^t.Screen, mode: t.Term_Mode) {}
 
 init_screen :: proc(allocator := context.allocator) -> t.Screen {
@@ -57,22 +54,12 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 		panic("failed to initialize virtual terminal")
 	}
 
-	g_text_textures = make(map[t.Styles]map[rune]^sdl3.Texture)
-
 	screen.winbuf = t.init_window(0, 0, nil, nil)
 	return screen
 }
 
 destroy_screen :: proc(screen: ^t.Screen) {
 	ttf.CloseFont(g_font)
-
-	for _, runes in g_text_textures {
-		for _, texture in runes {
-			sdl3.DestroyTexture(texture)
-		}
-		delete(runes)
-	}
-
 	t.destroy_window(&screen.winbuf)
 	sdl3.DestroyWindow(g_window)
 	sdl3.DestroyRenderer(g_renderer)
@@ -124,10 +111,6 @@ blit :: proc(win: ^t.Window) {
 		}
 		return sdl_color
 	}
-	// TODO: fix subtype check
-	// if type_of(win) == ^t.Screen {
-	// 	panic("only `t.Screen` is supported for now")
-	// }
 
 	sdl3.SetRenderDrawColor(g_renderer, 0, 0, 0, 0xFF)
 	sdl3.RenderClear(g_renderer)
@@ -136,6 +119,16 @@ blit :: proc(win: ^t.Window) {
 	termsize := get_term_size()
 	x_coord, y_coord: uint
 
+	text_textures := make(map[t.Styles]map[rune]^sdl3.Texture, context.temp_allocator)
+	defer {
+		for _, cell in text_textures {
+			for _, texture in cell {
+				sdl3.DestroyTexture(texture)
+			}
+		}
+		free_all(context.temp_allocator)
+	}
+
 	cell_h, cell_w := get_cell_size()
 	for y in 0 ..< win.cell_buffer.height {
 		y_coord = cast(uint)cell_h * y
@@ -143,38 +136,42 @@ blit :: proc(win: ^t.Window) {
 			x_coord = cast(uint)cell_w * x
 			curr_cell := t.cellbuf_get(win.cell_buffer, y, x)
 
-			fg_color := get_sdl_color(
-				curr_cell.styles.fg if curr_cell.styles.fg != nil else .White,
-			)
-			bg_color := get_sdl_color(
-				curr_cell.styles.bg if curr_cell.styles.bg != nil else .Black,
-			)
-
-			if curr_cell.styles not_in g_text_textures {
-				g_text_textures[curr_cell.styles] = make(map[rune]^sdl3.Texture)
+			if curr_cell.styles not_in text_textures {
+				text_textures[curr_cell.styles] = make(
+					map[rune]^sdl3.Texture,
+					context.temp_allocator,
+				)
 			}
-			if curr_cell.r not_in g_text_textures[curr_cell.styles] {
-				rune_surface := ttf.RenderGlyph_Blended(g_font, cast(u32)curr_cell.r, fg_color)
+			if curr_cell.r not_in text_textures[curr_cell.styles] {
+				fg_color := get_sdl_color(
+					curr_cell.styles.fg if curr_cell.styles.fg != nil else .White,
+				)
+				bg_color := get_sdl_color(
+					curr_cell.styles.bg if curr_cell.styles.bg != nil else .Black,
+				)
+
+				rune_surface := ttf.RenderGlyph_Shaded(
+					g_font,
+					cast(u32)curr_cell.r,
+					fg_color,
+					bg_color,
+				)
 				rune_texture := sdl3.CreateTextureFromSurface(g_renderer, rune_surface)
 				sdl3.DestroySurface(rune_surface)
-				runes_map := &g_text_textures[curr_cell.styles]
+				runes_map := &text_textures[curr_cell.styles]
 				runes_map[curr_cell.r] = rune_texture
 			}
 
-			curr_text := g_text_textures[curr_cell.styles][curr_cell.r]
+			cell := text_textures[curr_cell.styles][curr_cell.r]
 			rect := sdl3.FRect {
 				x = cast(f32)x_coord,
 				y = cast(f32)y_coord,
 				w = cast(f32)cell_w,
 				h = cast(f32)cell_h,
 			}
-			sdl3.SetRenderDrawColor(g_renderer, bg_color.r, bg_color.g, bg_color.b, bg_color.a)
-			sdl3.RenderFillRect(g_renderer, &rect)
-			sdl3.RenderTexture(g_renderer, curr_text, nil, &rect)
+			sdl3.RenderTexture(g_renderer, cell, nil, &rect)
 		}
 	}
-	termsize = get_term_size()
-	t.cellbuf_resize(&win.cell_buffer, termsize.h, termsize.w)
 }
 
 main :: proc() {
@@ -182,8 +179,9 @@ main :: proc() {
 	s := init_screen()
 	defer destroy_screen(&s)
 
-
 	for {
+		t.set_color_style(&s, nil, nil)
+		t.clear(&s, .Everything)
 		defer blit(&s)
 		input := read(&s)
 		switch i in input {

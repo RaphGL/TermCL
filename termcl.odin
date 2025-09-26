@@ -80,6 +80,21 @@ Sends instructions to terminal
 */
 blit :: proc(win: ^Window) {
 	render_vtable.blit(win)
+
+	// we need to keep the internal buffers in sync with the terminal size
+	// so that we can render things correctly
+	termsize := get_term_size()
+	win_h, win_h_ok := win.height.?
+	win_w, win_w_ok := win.width.?
+
+	if !win_h_ok || !win_w_ok {
+		if !win_h_ok do win_h = termsize.h
+		if !win_w_ok do win_w = termsize.w
+
+		if win.cell_buffer.height != win_h && win.cell_buffer.width != win_w {
+			cellbuf_resize(&win.cell_buffer, win_h, win_w)
+		}
+	}
 }
 
 read :: proc(screen: ^Screen) -> Input {

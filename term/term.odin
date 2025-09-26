@@ -120,27 +120,5 @@ blit :: proc(win: ^t.Window) {
 
 	fmt.print(strings.to_string(win.seq_builder), flush = true)
 	strings.builder_reset(&win.seq_builder)
-	// cellbuf_swap(&win.cell_buffer)
-
-	// we need to keep the internal buffers in sync with the terminal size
-	// so that we can render things correctly
-	termsize := get_term_size()
-	if type_of(win) == ^t.Screen {
-		if win.cell_buffer.height != termsize.h && win.cell_buffer.width != termsize.w {
-			t.cellbuf_resize(&win.cell_buffer, termsize.h, termsize.w)
-		}
-	} else {
-		win_h, win_h_ok := win.height.?
-		win_w, win_w_ok := win.width.?
-
-		if !win_h_ok || !win_w_ok {
-			if !win_h_ok do win_h = termsize.h
-			if !win_w_ok do win_w = termsize.w
-
-			if win.cell_buffer.height != win_h && win.cell_buffer.width != win_w {
-				t.cellbuf_resize(&win.cell_buffer, win_h, win_w)
-			}
-		}
-	}
 }
 
