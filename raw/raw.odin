@@ -252,7 +252,7 @@ enable_alt_buffer :: proc(enable: bool) {
 	if enable {
 		fmt.print("\x1b[?1049h")
 	} else {
-		fmt.print("\x1b[?1049h")
+		fmt.print("\x1b[?1049l")
 	}
 }
 
