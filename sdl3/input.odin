@@ -277,3 +277,12 @@ read :: proc(screen: ^t.Screen) -> t.Input {
 	return nil
 }
 
+read_blocking :: proc(screen: ^t.Screen) -> t.Input {
+	for {
+		i := read(screen)
+		if i != nil {
+			return i
+		}
+	}
+}
+

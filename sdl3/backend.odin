@@ -25,6 +25,7 @@ set_backend :: proc() {
 			set_term_mode = set_term_mode,
 			blit = blit,
 			read = read,
+			read_blocking = read_blocking,
 		},
 	)
 }
@@ -80,7 +81,6 @@ get_term_size :: proc() -> t.Window_Size {
 	return t.Window_Size{h = uint(f32(win_h) / f32(cell_h)), w = uint(f32(win_w) / f32(cell_w))}
 }
 
-
 blit :: proc(win: ^t.Window) {
 	get_sdl_color :: proc(color: t.Any_Color) -> sdl3.Color {
 		sdl_color: sdl3.Color
@@ -116,9 +116,6 @@ blit :: proc(win: ^t.Window) {
 	sdl3.RenderClear(g_renderer)
 	defer sdl3.RenderPresent(g_renderer)
 
-	termsize := get_term_size()
-	x_coord, y_coord: uint
-
 	text_textures := make(map[t.Styles]map[rune]^sdl3.Texture, context.temp_allocator)
 	defer {
 		for _, cell in text_textures {
@@ -130,11 +127,15 @@ blit :: proc(win: ^t.Window) {
 	}
 
 	cell_h, cell_w := get_cell_size()
+	x_coord, y_coord: uint
 	for y in 0 ..< win.cell_buffer.height {
-		y_coord = cast(uint)cell_h * y
+		y_coord = cell_h * y + cell_h * win.y_offset
 		for x in 0 ..< win.cell_buffer.width {
-			x_coord = cast(uint)cell_w * x
+			x_coord = cell_w * x + cell_w * win.x_offset
 			curr_cell := t.cellbuf_get(win.cell_buffer, y, x)
+			if curr_cell.r == {} {
+				curr_cell.r = ' '
+			}
 
 			if curr_cell.styles not_in text_textures {
 				text_textures[curr_cell.styles] = make(
@@ -171,30 +172,6 @@ blit :: proc(win: ^t.Window) {
 			}
 			sdl3.RenderTexture(g_renderer, cell, nil, &rect)
 		}
-	}
-}
-
-main :: proc() {
-	set_backend()
-	s := init_screen()
-	defer destroy_screen(&s)
-
-	for {
-		t.set_color_style(&s, nil, nil)
-		t.clear(&s, .Everything)
-		defer blit(&s)
-		input := read(&s)
-		switch i in input {
-		case t.Keyboard_Input:
-			if i.key == .Q {
-				return
-			}
-		case t.Mouse_Input:
-		}
-
-		t.move_cursor(&s, 0, 0)
-		t.set_color_style(&s, t.Color_RGB{0xff, 0xff, 0xff}, t.Color_RGB{0xff, 0, 0})
-		t.write(&s, "Hello World")
 	}
 }
 
