@@ -9,16 +9,15 @@ import "core:unicode/utf8"
 import "vendor:sdl3"
 import "vendor:sdl3/ttf"
 
-@(private)
-g_window: ^sdl3.Window
-@(private)
-g_renderer: ^sdl3.Renderer
-@(private)
-g_font: ^ttf.Font
-@(private)
-g_text_engine: ^ttf.TextEngine
-@(private)
-g_font_cache: map[rune]^ttf.Text
+Context :: struct {
+	window:      ^sdl3.Window,
+	renderer:    ^sdl3.Renderer,
+	font:        ^ttf.Font,
+	text_engine: ^ttf.TextEngine,
+	font_cache:  map[rune]^ttf.Text,
+}
+
+render_ctx: Context
 
 set_backend :: proc() {
 	t.set_backend(
@@ -34,7 +33,9 @@ set_backend :: proc() {
 	)
 }
 
-// we don't do anything. for a GUI raw vs cooked doesn't make a different
+// NOTE: Cooked vs Raw modes are pretty much useless on a GUI
+// so we do an no-op just here just so that programs don't crash attempting
+// to call a non existent function
 set_term_mode :: proc(screen: ^t.Screen, mode: t.Term_Mode) {}
 
 init_screen :: proc(allocator := context.allocator) -> t.Screen {
@@ -51,45 +52,52 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 	screen: t.Screen
 	screen.allocator = allocator
 
-	if !sdl3.CreateWindowAndRenderer("", 1000, 800, {.RESIZABLE}, &g_window, &g_renderer) {
+	if !sdl3.CreateWindowAndRenderer(
+		"",
+		1000,
+		800,
+		{.RESIZABLE},
+		&render_ctx.window,
+		&render_ctx.renderer,
+	) {
 		fmt.eprintln(sdl3.GetError())
 		panic("failed to initialize virtual terminal")
 	}
 
 	// TODO: dont hardcode font
-	g_font = ttf.OpenFont("/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf", 15)
-	g_text_engine = ttf.CreateRendererTextEngine(g_renderer)
-	if g_text_engine == nil {
+	render_ctx.font = ttf.OpenFont("/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf", 15)
+	render_ctx.text_engine = ttf.CreateRendererTextEngine(render_ctx.renderer)
+	if render_ctx.text_engine == nil {
 		fmt.eprintln(sdl3.GetError())
 		panic("failed to initialize text renderer engine")
 	}
-	g_font_cache = make(map[rune]^ttf.Text)
+	render_ctx.font_cache = make(map[rune]^ttf.Text)
 
 	screen.winbuf = t.init_window(0, 0, nil, nil)
 	return screen
 }
 
 destroy_screen :: proc(screen: ^t.Screen) {
-	for _, text in g_font_cache {
+	for _, text in render_ctx.font_cache {
 		ttf.DestroyText(text)
 	}
-	ttf.CloseFont(g_font)
-	ttf.DestroyRendererTextEngine(g_text_engine)
+	ttf.CloseFont(render_ctx.font)
+	ttf.DestroyRendererTextEngine(render_ctx.text_engine)
 	t.destroy_window(&screen.winbuf)
-	sdl3.DestroyWindow(g_window)
-	sdl3.DestroyRenderer(g_renderer)
+	sdl3.DestroyWindow(render_ctx.window)
+	sdl3.DestroyRenderer(render_ctx.renderer)
 	sdl3.Quit()
 }
 
 get_cell_size :: proc() -> (cell_h, cell_w: uint) {
 	cell_width, cell_height: c.int
-	ttf.GetStringSize(g_font, " ", len(" "), &cell_width, &cell_height)
+	ttf.GetStringSize(render_ctx.font, " ", len(" "), &cell_width, &cell_height)
 	return cast(uint)cell_height, cast(uint)cell_width
 }
 
 get_term_size :: proc() -> t.Window_Size {
 	win_w, win_h: c.int
-	sdl3.GetWindowSize(g_window, &win_w, &win_h)
+	sdl3.GetWindowSize(render_ctx.window, &win_w, &win_h)
 	cell_h, cell_w := get_cell_size()
 
 	return t.Window_Size{h = uint(f32(win_h) / f32(cell_h)), w = uint(f32(win_w) / f32(cell_w))}
@@ -126,9 +134,9 @@ blit :: proc(win: ^t.Window) {
 		return sdl_color
 	}
 
-	sdl3.SetRenderDrawColor(g_renderer, 0, 0, 0, 0xFF)
-	sdl3.RenderClear(g_renderer)
-	defer sdl3.RenderPresent(g_renderer)
+	sdl3.SetRenderDrawColor(render_ctx.renderer, 0, 0, 0, 0xFF)
+	sdl3.RenderClear(render_ctx.renderer)
+	defer sdl3.RenderPresent(render_ctx.renderer)
 
 	cell_h, cell_w := get_cell_size()
 	x_coord, y_coord: uint
@@ -141,18 +149,18 @@ blit :: proc(win: ^t.Window) {
 				curr_cell.r = ' '
 			}
 
-			if curr_cell.r not_in g_font_cache {
+			if curr_cell.r not_in render_ctx.font_cache {
 				r, r_len := utf8.encode_rune(curr_cell.r)
 				text := ttf.CreateText(
-					g_text_engine,
-					g_font,
+					render_ctx.text_engine,
+					render_ctx.font,
 					cast(cstring)raw_data(&r),
 					cast(uint)r_len,
 				)
-				g_font_cache[curr_cell.r] = text
+				render_ctx.font_cache[curr_cell.r] = text
 			}
 
-			text := g_font_cache[curr_cell.r]
+			text := render_ctx.font_cache[curr_cell.r]
 			rect := sdl3.FRect {
 				x = cast(f32)x_coord,
 				y = cast(f32)y_coord,
@@ -166,8 +174,14 @@ blit :: proc(win: ^t.Window) {
 				curr_cell.styles.bg if curr_cell.styles.bg != nil else .Black,
 			)
 
-			sdl3.SetRenderDrawColor(g_renderer, bg_color.r, bg_color.g, bg_color.b, bg_color.a)
-			sdl3.RenderFillRect(g_renderer, &rect)
+			sdl3.SetRenderDrawColor(
+				render_ctx.renderer,
+				bg_color.r,
+				bg_color.g,
+				bg_color.b,
+				bg_color.a,
+			)
+			sdl3.RenderFillRect(render_ctx.renderer, &rect)
 			ttf.SetTextColor(text, fg_color.r, fg_color.g, fg_color.b, fg_color.a)
 			ttf.DrawRendererText(text, cast(f32)x_coord, cast(f32)y_coord)
 		}
