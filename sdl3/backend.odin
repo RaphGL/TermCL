@@ -15,6 +15,10 @@ g_window: ^sdl3.Window
 g_renderer: ^sdl3.Renderer
 @(private)
 g_font: ^ttf.Font
+@(private)
+g_text_engine: ^ttf.TextEngine
+@(private)
+g_font_cache: map[rune]^ttf.Text
 
 set_backend :: proc() {
 	t.set_backend(
@@ -47,20 +51,30 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 	screen: t.Screen
 	screen.allocator = allocator
 
-	// TODO: dont hardcode font
-	g_font = ttf.OpenFont("/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf", 15)
-
 	if !sdl3.CreateWindowAndRenderer("", 1000, 800, {.RESIZABLE}, &g_window, &g_renderer) {
 		fmt.eprintln(sdl3.GetError())
 		panic("failed to initialize virtual terminal")
 	}
+
+	// TODO: dont hardcode font
+	g_font = ttf.OpenFont("/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf", 15)
+	g_text_engine = ttf.CreateRendererTextEngine(g_renderer)
+	if g_text_engine == nil {
+		fmt.eprintln(sdl3.GetError())
+		panic("failed to initialize text renderer engine")
+	}
+	g_font_cache = make(map[rune]^ttf.Text)
 
 	screen.winbuf = t.init_window(0, 0, nil, nil)
 	return screen
 }
 
 destroy_screen :: proc(screen: ^t.Screen) {
+	for _, text in g_font_cache {
+		ttf.DestroyText(text)
+	}
 	ttf.CloseFont(g_font)
+	ttf.DestroyRendererTextEngine(g_text_engine)
 	t.destroy_window(&screen.winbuf)
 	sdl3.DestroyWindow(g_window)
 	sdl3.DestroyRenderer(g_renderer)
@@ -116,16 +130,6 @@ blit :: proc(win: ^t.Window) {
 	sdl3.RenderClear(g_renderer)
 	defer sdl3.RenderPresent(g_renderer)
 
-	text_textures := make(map[t.Styles]map[rune]^sdl3.Texture, context.temp_allocator)
-	defer {
-		for _, cell in text_textures {
-			for _, texture in cell {
-				sdl3.DestroyTexture(texture)
-			}
-		}
-		free_all(context.temp_allocator)
-	}
-
 	cell_h, cell_w := get_cell_size()
 	x_coord, y_coord: uint
 	for y in 0 ..< win.cell_buffer.height {
@@ -137,40 +141,35 @@ blit :: proc(win: ^t.Window) {
 				curr_cell.r = ' '
 			}
 
-			if curr_cell.styles not_in text_textures {
-				text_textures[curr_cell.styles] = make(
-					map[rune]^sdl3.Texture,
-					context.temp_allocator,
-				)
-			}
-			if curr_cell.r not_in text_textures[curr_cell.styles] {
-				fg_color := get_sdl_color(
-					curr_cell.styles.fg if curr_cell.styles.fg != nil else .White,
-				)
-				bg_color := get_sdl_color(
-					curr_cell.styles.bg if curr_cell.styles.bg != nil else .Black,
-				)
-
-				rune_surface := ttf.RenderGlyph_Shaded(
+			if curr_cell.r not_in g_font_cache {
+				r, r_len := utf8.encode_rune(curr_cell.r)
+				text := ttf.CreateText(
+					g_text_engine,
 					g_font,
-					cast(u32)curr_cell.r,
-					fg_color,
-					bg_color,
+					cast(cstring)raw_data(&r),
+					cast(uint)r_len,
 				)
-				rune_texture := sdl3.CreateTextureFromSurface(g_renderer, rune_surface)
-				sdl3.DestroySurface(rune_surface)
-				runes_map := &text_textures[curr_cell.styles]
-				runes_map[curr_cell.r] = rune_texture
+				g_font_cache[curr_cell.r] = text
 			}
 
-			cell := text_textures[curr_cell.styles][curr_cell.r]
+			text := g_font_cache[curr_cell.r]
 			rect := sdl3.FRect {
 				x = cast(f32)x_coord,
 				y = cast(f32)y_coord,
 				w = cast(f32)cell_w,
 				h = cast(f32)cell_h,
 			}
-			sdl3.RenderTexture(g_renderer, cell, nil, &rect)
+			fg_color := get_sdl_color(
+				curr_cell.styles.fg if curr_cell.styles.fg != nil else .White,
+			)
+			bg_color := get_sdl_color(
+				curr_cell.styles.bg if curr_cell.styles.bg != nil else .Black,
+			)
+
+			sdl3.SetRenderDrawColor(g_renderer, bg_color.r, bg_color.g, bg_color.b, bg_color.a)
+			sdl3.RenderFillRect(g_renderer, &rect)
+			ttf.SetTextColor(text, fg_color.r, fg_color.g, fg_color.b, fg_color.a)
+			ttf.DrawRendererText(text, cast(f32)x_coord, cast(f32)y_coord)
 		}
 	}
 }
