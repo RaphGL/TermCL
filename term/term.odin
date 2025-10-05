@@ -9,19 +9,14 @@ import "core:strings"
 @(private)
 orig_termstate: Terminal_State
 
-@(init)
-set_backend :: proc "contextless" () {
-	t.set_backend(
-		t.Render_VTable {
-			init_screen = init_screen,
-			destroy_screen = destroy_screen,
-			get_term_size = get_term_size,
-			set_term_mode = set_term_mode,
-			blit = blit,
-			read = read,
-			read_blocking = read_blocking,
-		},
-	)
+VTABLE :: t.Backend_VTable {
+	init_screen    = init_screen,
+	destroy_screen = destroy_screen,
+	get_term_size  = get_term_size,
+	set_term_mode  = set_term_mode,
+	blit           = blit,
+	read           = read,
+	read_blocking  = read_blocking,
 }
 
 init_screen :: proc(allocator := context.allocator) -> t.Screen {

@@ -31,8 +31,7 @@ coolmap: [txrows][txcols]int
 
 // Executes the game intro.
 main :: proc() {
-	tb.set_backend()
-	screen := t.init_screen()
+	screen := t.init_screen(tb.VTABLE)
 	defer t.destroy_screen(&screen)
 	t.clear(&screen, .Everything)
 	t.blit(&screen)

@@ -27,8 +27,7 @@ import "core:time"
 
 
 main :: proc() {
-	tb.set_backend()
-	screen := t.init_screen()
+	screen := t.init_screen(tb.VTABLE)
 	frames: int
 
 	Style :: struct {

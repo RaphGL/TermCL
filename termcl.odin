@@ -3,6 +3,7 @@ package termcl
 import "base:runtime"
 import "core:fmt"
 import "core:os"
+import "core:reflect"
 import "core:strings"
 import "raw"
 
@@ -17,7 +18,7 @@ enable_mouse :: raw.enable_mouse
 hide_cursor :: raw.hide_cursor
 enable_alt_buffer :: raw.enable_alt_buffer
 
-Render_VTable :: struct {
+Backend_VTable :: struct {
 	init_screen:    proc(allocator: runtime.Allocator) -> Screen,
 	destroy_screen: proc(screen: ^Screen),
 	get_term_size:  proc() -> Window_Size,
@@ -28,7 +29,7 @@ Render_VTable :: struct {
 }
 
 @(private)
-render_vtable: Render_VTable
+backend_vtable: Backend_VTable
 
 /*
 Initializes the terminal screen and creates a backup of the state the terminal
@@ -38,18 +39,16 @@ Note: A screen **OUGHT** to be destroyed before exitting the program.
 Destroying the screen causes the terminal to be restored to its previous state.
 If the state is not restored your terminal might start misbehaving.
 */
-init_screen :: proc(allocator := context.allocator) -> Screen {
-	if render_vtable.init_screen == nil {
-		panic("missing backend, please set one before initializing the screen")
-	}
-	return render_vtable.init_screen(allocator)
+init_screen :: proc(backend: Backend_VTable, allocator := context.allocator) -> Screen {
+	set_backend(backend)
+	return backend_vtable.init_screen(allocator)
 }
 
 /*
 Restores the terminal to its original state and frees all memory allocated by the `t.Screen`
 */
 destroy_screen :: proc(screen: ^Screen) {
-	render_vtable.destroy_screen(screen)
+	backend_vtable.destroy_screen(screen)
 }
 
 /*
@@ -64,11 +63,11 @@ preventing you to have full access to user input.
 - `mode`: how terminal should behave from now on
 */
 set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
-	render_vtable.set_term_mode(screen, mode)
+	backend_vtable.set_term_mode(screen, mode)
 }
 
 get_term_size :: proc() -> Window_Size {
-	return render_vtable.get_term_size()
+	return backend_vtable.get_term_size()
 }
 
 /*
@@ -79,7 +78,7 @@ Sends instructions to terminal
 
 */
 blit :: proc(win: ^Window) {
-	render_vtable.blit(win)
+	backend_vtable.blit(win)
 
 	// we need to keep the internal buffers in sync with the terminal size
 	// so that we can render things correctly
@@ -98,7 +97,7 @@ blit :: proc(win: ^Window) {
 }
 
 read :: proc(screen: ^Screen) -> Input {
-	return render_vtable.read(screen)
+	return backend_vtable.read(screen)
 }
 
 /*
@@ -107,7 +106,7 @@ The read blocks execution until a value is read.
 If you want it to not block, use `read` instead.
 */
 read_blocking :: proc(screen: ^Screen) -> Input {
-	return render_vtable.read_blocking(screen)
+	return backend_vtable.read_blocking(screen)
 }
 
 /*
@@ -116,8 +115,15 @@ Set the current rendering backend
 This sets the VTable for the functions that are in charge of dealing
 with anything that is related with displaying the TUI to the screen.
 */
-set_backend :: proc "contextless" (backend: Render_VTable) {
-	render_vtable = backend
+set_backend :: proc(backend: Backend_VTable) {
+	if backend.set_term_mode == nil do panic("missing `set_term_mode` implementation")
+	if backend.read_blocking == nil do panic("missing `read_blocking` implementation")
+	if backend.read == nil do panic("missing `read` implementation")
+	if backend.init_screen == nil do panic("missing `init_screen` implementation")
+	if backend.get_term_size == nil do panic("missing `get_term_size` implementation")
+	if backend.destroy_screen == nil do panic("missing `destroy_screen` implementation")
+	if backend.blit == nil do panic("missing `blit` implementation")
+	backend_vtable = backend
 }
 
 Cell :: struct {
@@ -230,7 +236,7 @@ init_window :: proc(
 ) -> Window {
 	h, h_ok := height.?
 	w, w_ok := width.?
-	termsize := render_vtable.get_term_size()
+	termsize := backend_vtable.get_term_size()
 	cell_buffer := cellbuf_init(h if h_ok else termsize.h, w if w_ok else termsize.w, allocator)
 
 	return Window {
@@ -273,7 +279,7 @@ resize_window :: proc(win: ^Window, height, width: Maybe(uint)) {
 	h, h_ok := height.?
 	w, w_ok := width.?
 
-	termsize := render_vtable.get_term_size()
+	termsize := backend_vtable.get_term_size()
 	cellbuf_resize(&win.cell_buffer, h if h_ok else termsize.h, w if w_ok else termsize.w)
 }
 

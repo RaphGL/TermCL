@@ -4,8 +4,7 @@ import t "../.."
 import tb "../../term"
 
 main :: proc() {
-	tb.set_backend()
-	s := t.init_screen()
+	s := t.init_screen(tb.VTABLE)
 	defer t.destroy_screen(&s)
 	t.set_term_mode(&s, .Raw)
 	t.hide_cursor(true)

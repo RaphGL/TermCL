@@ -19,18 +19,14 @@ Context :: struct {
 
 render_ctx: Context
 
-set_backend :: proc() {
-	t.set_backend(
-		t.Render_VTable {
-			init_screen = init_screen,
-			destroy_screen = destroy_screen,
-			get_term_size = get_term_size,
-			set_term_mode = set_term_mode,
-			blit = blit,
-			read = read,
-			read_blocking = read_blocking,
-		},
-	)
+VTABLE :: t.Backend_VTable {
+	init_screen    = init_screen,
+	destroy_screen = destroy_screen,
+	get_term_size  = get_term_size,
+	set_term_mode  = set_term_mode,
+	blit           = blit,
+	read           = read,
+	read_blocking  = read_blocking,
 }
 
 // NOTE: Cooked vs Raw modes are pretty much useless on a GUI

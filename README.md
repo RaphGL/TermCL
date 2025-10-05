@@ -69,8 +69,7 @@ import t "termcl"
 import "termcl/term"
 
 main :: proc() {
-    term.set_backend()
-    scr := t.init_screen()
+    scr := t.init_screen(term.VTABLE)
     defer t.destroy_screen(&scr)
     t.clear(&scr, .Everything)
 
