@@ -1,13 +1,12 @@
 package term
 
 import t ".."
-import "core:fmt"
 import "core:os"
 import "core:strconv"
 import "core:unicode"
 
 read :: proc(screen: ^t.Screen) -> t.Input {
-	input, has_input := raw_read(screen)
+	input, has_input := raw_read(screen.input_buf[:])
 	if !has_input do return nil
 
 	mouse_input, mouse_ok := parse_mouse_input(input[:])
@@ -24,7 +23,7 @@ read :: proc(screen: ^t.Screen) -> t.Input {
 }
 
 read_raw :: proc(screen: ^t.Screen) -> (input: []byte, ok: bool) {
-	return raw_read(screen)
+	return raw_read(screen.input_buf[:])
 }
 
 read_raw_blocking :: proc(screen: ^t.Screen) -> (input: []byte, ok: bool) {

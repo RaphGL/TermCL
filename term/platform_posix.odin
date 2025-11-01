@@ -45,18 +45,18 @@ change_terminal_mode :: proc(screen: ^t.Screen, mode: t.Term_Mode) {
 	}
 }
 
-raw_read :: proc(screen: ^t.Screen) -> (user_input: []byte, has_input: bool) {
+raw_read :: proc(buf: []byte) -> (user_input: []byte, has_input: bool) {
 	stdin_pollfd := posix.pollfd {
 		fd     = posix.STDIN_FILENO,
 		events = {.IN},
 	}
 
 	if posix.poll(&stdin_pollfd, 1, 8) > 0 {
-		bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
+		bytes_read, err := os.read_ptr(os.stdin, raw_data(buf), len(buf))
 		if err != nil {
 			panic("failing to get user input")
 		}
-		return screen.input_buf[:bytes_read], true
+		return buf[:bytes_read], true
 	}
 
 	return {}, false
