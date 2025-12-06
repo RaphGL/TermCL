@@ -20,21 +20,23 @@ main :: proc() {
 		t.move_cursor(&s, 0, 0)
 		t.write(&s, "Press `Esc` to exit")
 
+		raw_input := tb.read_raw_blocking(&s) or_continue
 		t.move_cursor(&s, 2, 0)
+		t.writef(&s, "Raw: %v", raw_input)
 
-		input := t.read_blocking(&s)
-
-		switch i in input {
-		case t.Keyboard_Input:
+		kb_input, kb_has_input := tb.parse_keyboard_input(raw_input)
+		if kb_has_input {
 			t.move_cursor(&s, 4, 0)
 			t.write(&s, "Keyboard: ")
-			t.writef(&s, "%v", i)
-			if i.key == .Escape do return
-		case t.Mouse_Input:
+			t.writef(&s, "%v", kb_input)
+			if kb_input.key == .Escape do return
+		}
+
+		mouse_input, mouse_has_input := tb.parse_mouse_input(raw_input)
+		if mouse_has_input {
 			t.move_cursor(&s, 6, 0)
 			t.write(&s, "Mouse: ")
-			t.writef(&s, "%v", i)
+			t.writef(&s, "%v", mouse_input)
 		}
 	}
 }
-
