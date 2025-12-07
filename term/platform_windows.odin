@@ -116,6 +116,9 @@ raw_read :: proc(buf: []byte) -> (user_input: []byte, has_input: bool) {
 	}
 
 	if num_events > 0 {
+		// NOTE: an erroneous error code lingers around causing the program to mistakingly panic
+		// this fixes that, but os2 might potentially change behavior and this might not be required anymore
+		windows.SetLastError(0)
 		bytes_read, err := os.read_ptr(os.stdin, raw_data(buf), len(buf))
 		if err != nil {
 			panic("failing to get user input")
