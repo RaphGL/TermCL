@@ -2,7 +2,7 @@
 package term
 
 import t ".."
-import "core:os"
+import os "core:os/os2"
 import "core:sys/posix"
 
 Terminal_State :: struct {
@@ -61,4 +61,3 @@ raw_read :: proc(buf: []byte) -> (user_input: []byte, has_input: bool) {
 
 	return {}, false
 }
-

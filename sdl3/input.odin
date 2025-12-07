@@ -1,7 +1,7 @@
 package termcl_sdl3
 
 import t ".."
-import "core:os"
+import os "core:os/os2"
 import "vendor:sdl3"
 
 read :: proc(screen: ^t.Screen) -> t.Input {
@@ -285,4 +285,3 @@ read_blocking :: proc(screen: ^t.Screen) -> t.Input {
 		}
 	}
 }
-

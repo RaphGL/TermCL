@@ -2,8 +2,6 @@ package termcl
 
 import "base:runtime"
 import "core:fmt"
-import "core:os"
-import "core:reflect"
 import "core:strings"
 import "raw"
 
@@ -74,7 +72,7 @@ get_term_size :: proc() -> Window_Size {
 Sends instructions to terminal
 
 **Inputs**
-- `win`: A pointer to a window 
+- `win`: A pointer to a window
 
 */
 blit :: proc(win: ^Window) {
@@ -102,7 +100,7 @@ read :: proc(screen: ^Screen) -> Input {
 
 /*
 Reads input from the terminal.
-The read blocks execution until a value is read.  
+The read blocks execution until a value is read.
 If you want it to not block, use `read` instead.
 */
 read_blocking :: proc(screen: ^Screen) -> Input {
@@ -189,11 +187,11 @@ Styles :: struct {
 A bounded "drawing" box in the terminal.
 
 **Fields**
-- `allocator`: the allocator used by the window 
+- `allocator`: the allocator used by the window
 - `seq_builder`: where the escape sequences are stored
 - `x_offset`, `y_offset`: offsets from (0, 0) coordinates of the terminal
 - `width`, `height`: sizes for the window
-- `cursor`: where the cursor was last when this window was interacted with 
+- `cursor`: where the cursor was last when this window was interacted with
 */
 Window :: struct {
 	allocator:          runtime.Allocator,
@@ -523,4 +521,3 @@ Get the current cursor position.
 get_cursor_position :: #force_inline proc(win: ^Window) -> Cursor_Position {
 	return win.cursor
 }
-

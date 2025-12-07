@@ -2,7 +2,7 @@ package kitty_keyboard
 
 import "../term"
 import "core:fmt"
-import "core:os"
+import os "core:os/os2"
 import "core:strconv"
 import "core:strings"
 import "core:terminal/ansi"
@@ -136,4 +136,3 @@ pop_enhancements :: proc(num_of_entries: int) {
 	strings.write_rune(&sb, 'u')
 	os.write_string(os.stdout, strings.to_string(sb))
 }
-

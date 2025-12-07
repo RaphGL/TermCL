@@ -1,7 +1,6 @@
 package main
 
 import t "../.."
-import sb "../../sdl3"
 import tb "../../term"
 import "core:math/rand"
 import "core:time"
@@ -231,7 +230,7 @@ game_tick :: proc(game: ^Game, s: ^t.Screen) {
 
 
 main :: proc() {
-	s := t.init_screen(sb.VTABLE)
+	s := t.init_screen(tb.VTABLE)
 	defer t.destroy_screen(&s)
 	t.set_term_mode(&s, .Cbreak)
 	t.hide_cursor(true)
@@ -274,4 +273,3 @@ main :: proc() {
 		game_tick(&game, &s)
 	}
 }
-

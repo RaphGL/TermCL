@@ -3,7 +3,7 @@ package term
 import t ".."
 import "../raw"
 import "core:fmt"
-import "core:os"
+import os "core:os/os2"
 import "core:strings"
 
 @(private)
@@ -116,4 +116,3 @@ blit :: proc(win: ^t.Window) {
 	fmt.print(strings.to_string(win.seq_builder), flush = true)
 	strings.builder_reset(&win.seq_builder)
 }
-

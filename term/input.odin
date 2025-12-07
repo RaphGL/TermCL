@@ -1,7 +1,7 @@
 package term
 
 import t ".."
-import "core:os"
+import os "core:os/os2"
 import "core:strconv"
 import "core:unicode"
 
@@ -499,4 +499,3 @@ parse_mouse_input :: proc(input: []byte) -> (mouse_input: t.Mouse_Input, has_inp
 			coord = {x = x_coord - 1, y = y_coord - 1},
 		}, true
 }
-

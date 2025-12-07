@@ -3,8 +3,6 @@ package termcl_sdl3
 import t ".."
 import "core:c"
 import "core:fmt"
-import "core:os"
-import "core:strings"
 import "core:unicode/utf8"
 import "vendor:sdl3"
 import "vendor:sdl3/ttf"
@@ -183,4 +181,3 @@ blit :: proc(win: ^t.Window) {
 		}
 	}
 }
-
