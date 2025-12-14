@@ -1,7 +1,7 @@
 package term
 
 import t ".."
-import os "core:os/os2"
+import os "core:os"
 import "core:sys/windows"
 
 Terminal_State :: struct {
@@ -14,10 +14,10 @@ Terminal_State :: struct {
 
 get_terminal_state :: proc() -> (Terminal_State, bool) {
 	termstate: Terminal_State
-	windows.GetConsoleMode(windows.HANDLE(os.fd(os.stdout)), &termstate.output_mode)
+	windows.GetConsoleMode(windows.HANDLE(os.stdout), &termstate.output_mode)
 	termstate.output_codepage = windows.GetConsoleOutputCP()
 
-	windows.GetConsoleMode(windows.HANDLE(os.fd(os.stdin)), &termstate.input_mode)
+	windows.GetConsoleMode(windows.HANDLE(os.stdin), &termstate.input_mode)
 	termstate.input_codepage = windows.GetConsoleCP()
 
 	return termstate, true
@@ -52,8 +52,8 @@ change_terminal_mode :: proc(screen: ^t.Screen, mode: t.Term_Mode) {
 		termstate = orig_termstate
 	}
 
-	if !windows.SetConsoleMode(windows.HANDLE(os.fd(os.stdout)), termstate.output_mode) ||
-	   !windows.SetConsoleMode(windows.HANDLE(os.fd(os.stdin)), termstate.input_mode) {
+	if !windows.SetConsoleMode(windows.HANDLE(os.stdout), termstate.output_mode) ||
+	   !windows.SetConsoleMode(windows.HANDLE(os.stdin), termstate.input_mode) {
 		panic("failed to set new terminal state")
 	}
 
@@ -80,7 +80,7 @@ your program to slow down a bit due to OS context switching.
 get_term_size :: proc() -> t.Window_Size {
 	sbi: windows.CONSOLE_SCREEN_BUFFER_INFO
 
-	if !windows.GetConsoleScreenBufferInfo(windows.HANDLE(os.fd(os.stdout)), &sbi) {
+	if !windows.GetConsoleScreenBufferInfo(windows.HANDLE(os.stdout), &sbi) {
 		panic("Failed to get terminal size")
 	}
 
@@ -95,7 +95,7 @@ get_term_size :: proc() -> t.Window_Size {
 
 raw_read :: proc(buf: []byte) -> (user_input: []byte, has_input: bool) {
 	num_events: u32
-	if !windows.GetNumberOfConsoleInputEvents(windows.HANDLE(os.fd(os.stdin)), &num_events) {
+	if !windows.GetNumberOfConsoleInputEvents(windows.HANDLE(os.stdin), &num_events) {
 		error_id := windows.GetLastError()
 		error_msg: ^u16
 
@@ -110,16 +110,13 @@ raw_read :: proc(buf: []byte) -> (user_input: []byte, has_input: bool) {
 			0,
 			nil,
 		)
-		windows.WriteConsoleW(windows.HANDLE(os.fd(os.stdout)), error_msg, strsize, nil, nil)
+		windows.WriteConsoleW(windows.HANDLE(os.stdout), error_msg, strsize, nil, nil)
 		windows.LocalFree(error_msg)
 		panic("Failed to get console input events")
 	}
 
 	if num_events > 0 {
-		// NOTE: an erroneous error code lingers around causing the program to mistakingly panic
-		// this fixes that, but os2 might potentially change behavior and this might not be required anymore
-		windows.SetLastError(0)
-		bytes_read, err := os.read_ptr(os.stdin, raw_data(buf), len(buf))
+		bytes_read, err := os.read(os.stdin, buf[:])
 		if err != nil {
 			panic("failing to get user input")
 		}

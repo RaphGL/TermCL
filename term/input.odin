@@ -1,7 +1,7 @@
 package term
 
 import t ".."
-import os "core:os/os2"
+import os "core:os"
 import "core:strconv"
 import "core:unicode"
 
@@ -27,7 +27,7 @@ read_raw :: proc(screen: ^t.Screen) -> (input: []byte, ok: bool) {
 }
 
 read_raw_blocking :: proc(screen: ^t.Screen) -> (input: []byte, ok: bool) {
-	bytes_read, err := os.read_ptr(os.stdin, &screen.input_buf, len(screen.input_buf))
+	bytes_read, err := os.read(os.stdin, screen.input_buf[:])
 	if err != nil {
 		panic("failing to get user input")
 	}
