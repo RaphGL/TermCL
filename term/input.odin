@@ -247,15 +247,15 @@ parse_keyboard_input :: proc(
 
 		if unicode.is_control(input_rune) {
 			switch input_rune {
-			case '\r',
-			     '\n',
-			     '\b',
-			     127, /* backspace */
-			     '\t',
-			     '\x1b':
 			case:
 				seq.mod = .Ctrl
 				input[0] += 64
+			case '\b', '\n':
+				seq.mod = .Ctrl
+			case '\r',
+			     127, /* backspace */
+			     '\t',
+			     '\x1b':
 			}
 		}
 
