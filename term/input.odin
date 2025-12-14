@@ -1,6 +1,7 @@
 package term
 
 import t ".."
+import "core:fmt"
 import os "core:os"
 import "core:strconv"
 import "core:unicode"
@@ -412,7 +413,8 @@ parse_keyboard_input :: proc(
 			}
 		}
 
-		return seq, true
+
+		if seq != {} do return seq, true
 	}
 
 	// alt is ESC + <char>
