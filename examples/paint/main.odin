@@ -75,7 +75,7 @@ paint_buffer_handle_mouse_input :: proc(pb: ^Paint_Buffer, i: t.Mouse_Input) {
 
 draw_hud :: proc(hud: ^t.Window, pb: ^Paint_Buffer) {
 	winsize := t.get_window_size(hud)
-	help_msg :: "Quit (Esc or CTRL + C) / Draw (Right Click) / Erase (Left Click) / Brush Colors (Scroll Wheel)"
+	help_msg :: "Quit (Esc or CTRL + C) / Draw (Left Click) / Erase (Right Click) / Brush Colors (Scroll Wheel)"
 	t.move_cursor(hud, 0, winsize.w / 2 - len(help_msg) / 2)
 	t.write(hud, help_msg)
 
