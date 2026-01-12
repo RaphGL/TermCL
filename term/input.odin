@@ -2,7 +2,7 @@ package term
 
 import t ".."
 import "core:fmt"
-import os "core:os"
+import os "core:os/os2"
 import "core:strconv"
 import "core:unicode"
 
