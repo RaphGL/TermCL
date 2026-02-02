@@ -3,6 +3,7 @@ package termcl_sdl3
 import t ".."
 import "core:c"
 import "core:fmt"
+import "core:strings"
 import "core:unicode/utf8"
 import "vendor:sdl3"
 import "vendor:sdl3/ttf"
@@ -58,17 +59,34 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 		panic("failed to initialize virtual terminal")
 	}
 
-	// TODO: dont hardcode font
-	render_ctx.font = ttf.OpenFont("/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf", 15)
-	render_ctx.text_engine = ttf.CreateRendererTextEngine(render_ctx.renderer)
-	if render_ctx.text_engine == nil {
-		fmt.eprintln(sdl3.GetError())
-		panic("failed to initialize text renderer engine")
-	}
-	render_ctx.font_cache = make(map[rune]^ttf.Text)
-
-	screen.winbuf = t.init_window(0, 0, nil, nil)
 	return screen
+}
+
+set_font :: proc(screen: ^t.Screen, path: string, size: f32) -> bool {
+	path_cstr, path_cstr_err := strings.clone_to_cstring(path)
+	if path_cstr_err != .None do return false
+	defer delete(path_cstr)
+
+	render_ctx.font = ttf.OpenFont(path_cstr, size)
+	if render_ctx.font == nil do return false
+
+	render_ctx.text_engine = ttf.CreateRendererTextEngine(render_ctx.renderer)
+	if render_ctx.text_engine == nil do return false
+
+	if render_ctx.font_cache == nil {
+		render_ctx.font_cache = make(map[rune]^ttf.Text)
+	} else {
+		clear(&render_ctx.font_cache)
+	}
+
+	// NOTE: on sdl3 the window size will be dependent on the font
+	// so we can only initialize the window once we know the font size
+	if strings.builder_len(screen.seq_builder) == 0 {
+		screen.winbuf = t.init_window(0, 0, nil, nil)
+	} else {
+		t.resize_window(&screen.winbuf, nil, nil)
+	}
+	return true
 }
 
 destroy_screen :: proc(screen: ^t.Screen) {
