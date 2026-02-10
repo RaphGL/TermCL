@@ -2,9 +2,6 @@ package termcl_sdl3
 
 import t ".."
 import os "core:os/os2"
-import "core:strings"
-import "core:unicode"
-import "core:unicode/utf8"
 import "vendor:sdl3"
 
 read_raw :: proc(screen: ^t.Screen) -> (input: cstring, ok: bool) {
@@ -66,40 +63,62 @@ parse_mouse_input :: proc(event: ^sdl3.Event) -> (mouse_input: t.Mouse_Input, ha
 	}
 
 	mouse: t.Mouse_Input
-	// TODO: convert to cell based coordinates
-	mouse.coord.x = cast(uint)event.motion.x
-	mouse.coord.y = cast(uint)event.motion.y
-
-	if event.wheel.y > 0 {
-		mouse.key = .Scroll_Up
-	} else if event.wheel.y < 0 {
-		mouse.key = .Scroll_Down
-	}
+	cell_h, cell_w := get_cell_size()
+	mouse.coord.x = cast(uint)event.motion.x / cell_w
+	mouse.coord.y = cast(uint)event.motion.y / cell_h
 
 	#partial switch event.type {
-	case .MOUSE_BUTTON_UP:
-		mouse.event = {.Released}
-	case .MOUSE_BUTTON_DOWN:
+	case .MOUSE_WHEEL:
 		mouse.event = {.Pressed}
+		if event.wheel.y > 0 {
+			mouse.key = .Scroll_Up
+		} else if event.wheel.y < 0 {
+			mouse.key = .Scroll_Down
+		}
+
+	case .MOUSE_MOTION:
+		if .LEFT in event.motion.state {
+			mouse.key = .Left
+			mouse.event = {.Pressed}
+		}
+		if .RIGHT in event.motion.state {
+			mouse.key = .Right
+			mouse.event = {.Pressed}
+		}
+		if .MIDDLE in event.motion.state {
+			mouse.key = .Middle
+			mouse.event = {.Pressed}
+		}
+
+	case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
+		switch event.button.button {
+		case sdl3.BUTTON_RIGHT:
+			mouse.key = .Right
+		case sdl3.BUTTON_LEFT:
+			mouse.key = .Left
+		case sdl3.BUTTON_MIDDLE:
+			mouse.key = .Middle
+		}
+
+		#partial switch event.type {
+		case .MOUSE_BUTTON_DOWN:
+			mouse.event = {.Pressed}
+		case .MOUSE_BUTTON_UP:
+			mouse.event = {.Released}
+		}
 	}
 
-	switch event.button.button {
-	case sdl3.BUTTON_RIGHT:
-		mouse.key = .Right
-	case sdl3.BUTTON_LEFT:
-		mouse.key = .Left
-	case sdl3.BUTTON_MIDDLE:
-		mouse.key = .Middle
-	}
 
 	/* MODIFIERS */{
-		if (event.key.mod & {.LCTRL, .RCTRL}) != {} {
+		mod := sdl3.GetModState()
+
+		if (mod & {.LCTRL, .RCTRL}) != {} {
 			mouse.mod += {.Ctrl}
 		}
-		if (event.key.mod & {.LALT, .RALT}) != {} {
+		if (mod & {.LALT, .RALT}) != {} {
 			mouse.mod += {.Alt}
 		}
-		if (event.key.mod & {.LSHIFT, .RSHIFT}) != {} {
+		if (mod & {.LSHIFT, .RSHIFT}) != {} {
 			mouse.mod += {.Shift}
 		}
 	}
