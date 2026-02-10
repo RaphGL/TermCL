@@ -59,19 +59,22 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 		panic("failed to initialize virtual terminal")
 	}
 
+	set_font_from_slice(&screen, DEFAULT_FONT_BYTES, 14)
+
 	return screen
 }
 
-set_font :: proc(screen: ^t.Screen, path: string, size: f32) -> bool {
-	path_cstr, path_cstr_err := strings.clone_to_cstring(path)
-	if path_cstr_err != .None do return false
-	defer delete(path_cstr)
+@(rodata)
+DEFAULT_FONT_BYTES := #load("./JetBrainsMono-Regular.ttf")
 
-	render_ctx.font = ttf.OpenFont(path_cstr, size)
-	if render_ctx.font == nil do return false
+__init_font_engine :: proc(screen: ^t.Screen, font: ^ttf.Font) -> bool {
+	if font == nil do return false
+	render_ctx.font = font
 
-	render_ctx.text_engine = ttf.CreateRendererTextEngine(render_ctx.renderer)
-	if render_ctx.text_engine == nil do return false
+	if render_ctx.text_engine == nil {
+		render_ctx.text_engine = ttf.CreateRendererTextEngine(render_ctx.renderer)
+		if render_ctx.text_engine == nil do return false
+	}
 
 	if render_ctx.font_cache == nil {
 		render_ctx.font_cache = make(map[rune]^ttf.Text)
@@ -82,11 +85,34 @@ set_font :: proc(screen: ^t.Screen, path: string, size: f32) -> bool {
 	// NOTE: on sdl3 the window size will be dependent on the font
 	// so we can only initialize the window once we know the font size
 	if strings.builder_len(screen.seq_builder) == 0 {
-		screen.winbuf = t.init_window(0, 0, nil, nil)
+		screen.winbuf = t.init_window(0, 0, nil, nil, screen.allocator)
 	} else {
 		t.resize_window(&screen.winbuf, nil, nil)
 	}
 	return true
+}
+
+set_font_from_slice :: proc(screen: ^t.Screen, font: []byte, size: f32) -> bool {
+	font_stream := sdl3.IOFromConstMem(raw_data(font), len(font))
+	if font_stream == nil do return false
+
+	props := sdl3.CreateProperties()
+	defer sdl3.DestroyProperties(props)
+	sdl3.SetPointerProperty(props, ttf.PROP_FONT_CREATE_IOSTREAM_POINTER, font_stream)
+	sdl3.SetFloatProperty(props, ttf.PROP_FONT_CREATE_SIZE_FLOAT, size)
+	sdl3.SetBooleanProperty(props, ttf.PROP_FONT_CREATE_IOSTREAM_AUTOCLOSE_BOOLEAN, true)
+
+	font := ttf.OpenFontWithProperties(props)
+	return __init_font_engine(screen, font)
+}
+
+set_font :: proc(screen: ^t.Screen, path: string, size: f32) -> bool {
+	path_cstr, path_cstr_err := strings.clone_to_cstring(path)
+	if path_cstr_err != .None do return false
+	defer delete(path_cstr)
+
+	font := ttf.OpenFont(path_cstr, size)
+	return __init_font_engine(screen, font)
 }
 
 destroy_screen :: proc(screen: ^t.Screen) {
