@@ -2,7 +2,34 @@ package termcl_sdl3
 
 import t ".."
 import os "core:os/os2"
+import "core:strings"
+import "core:unicode"
+import "core:unicode/utf8"
 import "vendor:sdl3"
+
+read_raw :: proc(screen: ^t.Screen) -> (input: cstring, ok: bool) {
+	e: sdl3.Event
+	for sdl3.PollEvent(&e) {
+		#partial switch e.type {
+		case .QUIT:
+			os.exit(0)
+		case .TEXT_INPUT:
+			return e.text.text, true
+		}
+	}
+
+	return
+}
+
+read_raw_blocking :: proc(screen: ^t.Screen) -> (input: cstring, ok: bool) {
+	for {
+		input, input_ok := read_raw(screen)
+		if input_ok {
+			return input, true
+		}
+	}
+	return
+}
 
 read :: proc(screen: ^t.Screen) -> t.Input {
 	e: sdl3.Event
@@ -31,9 +58,9 @@ read_blocking :: proc(screen: ^t.Screen) -> t.Input {
 }
 
 parse_mouse_input :: proc(event: ^sdl3.Event) -> (mouse_input: t.Mouse_Input, has_input: bool) {
-	if event.type != .MOUSE_BUTTON_DOWN ||
-	   event.type != .MOUSE_BUTTON_UP ||
-	   event.type != .MOUSE_WHEEL ||
+	if event.type != .MOUSE_BUTTON_DOWN &&
+	   event.type != .MOUSE_BUTTON_UP &&
+	   event.type != .MOUSE_WHEEL &&
 	   event.type != .MOUSE_MOTION {
 		return {}, false
 	}
@@ -87,20 +114,18 @@ parse_keyboard_input :: proc(
 	has_input: bool,
 ) {
 	kb: t.Keyboard_Input
+
+	mod := sdl3.GetModState()
+	if mod & {.LSHIFT, .RSHIFT} != {} {
+		kb.mod = .Shift
+	} else if mod & {.LCTRL, .RCTRL} != {} {
+		kb.mod = .Ctrl
+	} else if mod & {.LALT, .RALT} != {} {
+		kb.mod = .Ctrl
+	}
+
 	#partial switch event.type {
 	case .KEY_DOWN:
-		 /* MODIFIERS */{
-			if (event.key.mod & {.LCTRL, .RCTRL}) != {} {
-				kb.mod = .Ctrl
-			}
-			if (event.key.mod & {.LALT, .RALT}) != {} {
-				kb.mod = .Alt
-			}
-			if (event.key.mod & {.LSHIFT, .RSHIFT}) != {} {
-				kb.mod = .Shift
-			}
-		}
-
 		switch event.key.key {
 		case sdl3.K_LEFT:
 			kb.key = .Arrow_Left
@@ -252,6 +277,10 @@ parse_keyboard_input :: proc(
 			kb.key = .Slash
 		case sdl3.K_BACKSLASH:
 			kb.key = .Backslash
+		case sdl3.K_APOSTROPHE:
+			kb.key = .Single_Quote
+		case sdl3.K_DBLAPOSTROPHE:
+			kb.key = .Double_Quote
 		case sdl3.K_PERIOD:
 			kb.key = .Period
 		case sdl3.K_ASTERISK:
@@ -268,6 +297,8 @@ parse_keyboard_input :: proc(
 			kb.key = .Percent
 		case sdl3.K_AMPERSAND:
 			kb.key = .Ampersand
+		case sdl3.K_GRAVE:
+			kb.key = .Backtick
 		case sdl3.K_UNDERSCORE:
 			kb.key = .Underscore
 		case sdl3.K_CARET:
@@ -286,23 +317,162 @@ parse_keyboard_input :: proc(
 			kb.key = .Greater_Than
 		case sdl3.K_QUESTION:
 			kb.key = .Question_Mark
-		case sdl3.K_GRAVE:
-			kb.key = .Backtick
 		case:
 			kb.key = .None
 		}
 
-		return kb, true
-
 	case .TEXT_INPUT:
-		switch event.text.text {
-		case "'":
+		if len(event.text.text) == 0 do return
+
+		r := cast(rune)string(event.text.text)[0]
+
+
+		switch r {
+		case '\'':
 			kb.key = .Single_Quote
-		case "\"":
+		case '"':
 			kb.key = .Double_Quote
-		case "´":
+		case '´':
 			kb.key = .Tick
+		case 'A', 'a':
+			kb.key = .A
+		case 'B', 'b':
+			kb.key = .B
+		case 'C', 'c':
+			kb.key = .C
+		case 'D', 'd':
+			kb.key = .D
+		case 'E', 'e':
+			kb.key = .E
+		case 'F', 'f':
+			kb.key = .F
+		case 'G', 'g':
+			kb.key = .G
+		case 'H', 'h':
+			kb.key = .H
+		case 'I', 'i':
+			kb.key = .I
+		case 'J', 'j':
+			kb.key = .J
+		case 'K', 'k':
+			kb.key = .K
+		case 'L', 'l':
+			kb.key = .L
+		case 'M', 'm':
+			kb.key = .M
+		case 'N', 'n':
+			kb.key = .N
+		case 'O', 'o':
+			kb.key = .O
+		case 'P', 'p':
+			kb.key = .P
+		case 'Q', 'q':
+			kb.key = .Q
+		case 'R', 'r':
+			kb.key = .R
+		case 'S', 's':
+			kb.key = .S
+		case 'T', 't':
+			kb.key = .T
+		case 'U', 'u':
+			kb.key = .U
+		case 'V', 'v':
+			kb.key = .V
+		case 'W', 'w':
+			kb.key = .W
+		case 'X', 'x':
+			kb.key = .X
+		case 'Y', 'y':
+			kb.key = .Y
+		case 'Z', 'z':
+			kb.key = .Z
+		case '0':
+			kb.key = .Num_0
+		case '1':
+			kb.key = .Num_1
+		case '2':
+			kb.key = .Num_2
+		case '3':
+			kb.key = .Num_3
+		case '4':
+			kb.key = .Num_4
+		case '5':
+			kb.key = .Num_5
+		case '6':
+			kb.key = .Num_6
+		case '7':
+			kb.key = .Num_7
+		case '8':
+			kb.key = .Num_8
+		case '9':
+			kb.key = .Num_9
+		case '-':
+			kb.key = .Minus
+		case '+':
+			kb.key = .Plus
+		case '=':
+			kb.key = .Equal
+		case '(':
+			kb.key = .Open_Paren
+		case ')':
+			kb.key = .Close_Paren
+		case '{':
+			kb.key = .Open_Curly_Bracket
+		case '}':
+			kb.key = .Close_Curly_Bracket
+		case '[':
+			kb.key = .Open_Square_Bracket
+		case ']':
+			kb.key = .Close_Square_Bracket
+		case ':':
+			kb.key = .Colon
+		case ';':
+			kb.key = .Semicolon
+		case '/':
+			kb.key = .Slash
+		case '\\':
+			kb.key = .Backslash
+		case '.':
+			kb.key = .Period
+		case '*':
+			kb.key = .Asterisk
+		case ' ':
+			kb.key = .Space
+		case '$':
+			kb.key = .Dollar
+		case '!':
+			kb.key = .Exclamation
+		case '#':
+			kb.key = .Hash
+		case '%':
+			kb.key = .Percent
+		case '&':
+			kb.key = .Ampersand
+		case '_':
+			kb.key = .Underscore
+		case '^':
+			kb.key = .Caret
+		case ',':
+			kb.key = .Comma
+		case '|':
+			kb.key = .Pipe
+		case '@':
+			kb.key = .At
+		case '~':
+			kb.key = .Tilde
+		case '<':
+			kb.key = .Less_Than
+		case '>':
+			kb.key = .Greater_Than
+		case '?':
+			kb.key = .Question_Mark
+		case '`':
+			kb.key = .Backtick
 		}
+	}
+
+	if kb.key != .None {
+		return kb, true
 	}
 
 	return

@@ -1,7 +1,6 @@
 package term
 
 import t ".."
-import "core:fmt"
 import os "core:os/os2"
 import "core:strconv"
 import "core:unicode"
@@ -10,12 +9,14 @@ read :: proc(screen: ^t.Screen) -> t.Input {
 	input, has_input := raw_read(screen.input_buf[:])
 	if !has_input do return nil
 
-	mouse_input, mouse_ok := parse_mouse_input(input[:])
+	input_str := transmute(string)input
+
+	mouse_input, mouse_ok := parse_mouse_input(input_str)
 	if mouse_ok {
 		return mouse_input
 	}
 
-	kb_input, kb_ok := parse_keyboard_input(input[:])
+	kb_input, kb_ok := parse_keyboard_input(input_str)
 	if kb_ok {
 		return kb_input
 	}
@@ -23,17 +24,18 @@ read :: proc(screen: ^t.Screen) -> t.Input {
 	return nil
 }
 
-read_raw :: proc(screen: ^t.Screen) -> (input: []byte, ok: bool) {
-	return raw_read(screen.input_buf[:])
+read_raw :: proc(screen: ^t.Screen) -> (input: string, ok: bool) {
+	input_raw, input_ok := raw_read(screen.input_buf[:])
+	return cast(string)input_raw, input_ok
 }
 
-read_raw_blocking :: proc(screen: ^t.Screen) -> (input: []byte, ok: bool) {
+read_raw_blocking :: proc(screen: ^t.Screen) -> (input: string, ok: bool) {
 	bytes_read, err := os.read(os.stdin, screen.input_buf[:])
 	if err != nil {
 		panic("failing to get user input")
 	}
 
-	return screen.input_buf[:bytes_read], bytes_read > 0
+	return cast(string)screen.input_buf[:bytes_read], bytes_read > 0
 }
 
 read_blocking :: proc(screen: ^t.Screen) -> t.Input {
@@ -71,13 +73,13 @@ check what value it is processed into.
 For example, `.Escape` is either Esc, Ctrl + [ and Ctrl + 3 to the terminal.
 */
 parse_keyboard_input :: proc(
-	input: []byte,
+	input: string,
 ) -> (
 	keyboard_input: t.Keyboard_Input,
 	has_input: bool,
 ) {
-	_alnum_to_key :: proc(b: byte) -> (key: t.Key, ok: bool) {
-		switch b {
+	_alnum_to_key :: proc(r: rune) -> (key: t.Key, ok: bool) {
+		switch r {
 		case '\x1b':
 			key = .Escape
 		case '1':
@@ -250,7 +252,7 @@ parse_keyboard_input :: proc(
 			switch input_rune {
 			case:
 				seq.mod = .Ctrl
-				input[0] += 64
+				input_rune += 64
 			case '\b', '\n':
 				seq.mod = .Ctrl
 			case '\r',
@@ -260,7 +262,7 @@ parse_keyboard_input :: proc(
 			}
 		}
 
-		key, ok := _alnum_to_key(input[0])
+		key, ok := _alnum_to_key(input_rune)
 		if !ok do return {}, false
 		seq.key = key
 		return seq, true
@@ -419,7 +421,7 @@ parse_keyboard_input :: proc(
 
 	// alt is ESC + <char>
 	if len(input) == 2 {
-		key, ok := _alnum_to_key(input[1])
+		key, ok := _alnum_to_key(cast(rune)input[1])
 		if ok {
 			seq.mod = .Alt
 			seq.key = key
@@ -441,7 +443,7 @@ Note: mouse input is not always guaranteed. The user might be running the progra
 a tty or the terminal emulator might just not support mouse input.
 
 */
-parse_mouse_input :: proc(input: []byte) -> (mouse_input: t.Mouse_Input, has_input: bool) {
+parse_mouse_input :: proc(input: string) -> (mouse_input: t.Mouse_Input, has_input: bool) {
 	// the mouse input we support is SGR escape code based
 	if len(input) < 6 do return
 

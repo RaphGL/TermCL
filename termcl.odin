@@ -207,9 +207,9 @@ Window :: struct {
 	 */
 	curr_styles:        Styles,
 	/*
-	Double buffer used to store the cells in the terminal.
-	The double buffer allows diffing between current and previous frames to reduce work required by the terminal.
-	*/
+	Buffer used to store the cells in the terminal.
+	The buffer is used to reduce state changes such as styles and cursor position.
+	 */
 	cell_buffer:        Cell_Buffer,
 }
 
