@@ -61,6 +61,8 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 
 	set_font_from_slice(&screen, DEFAULT_FONT_BYTES, 14)
 
+	_ = sdl3.StartTextInput(render_ctx.window)
+
 	return screen
 }
 
@@ -116,6 +118,8 @@ set_font :: proc(screen: ^t.Screen, path: string, size: f32) -> bool {
 }
 
 destroy_screen :: proc(screen: ^t.Screen) {
+	_ = sdl3.StopTextInput(render_ctx.window)
+
 	for _, text in render_ctx.font_cache {
 		ttf.DestroyText(text)
 	}
