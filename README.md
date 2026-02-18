@@ -30,31 +30,33 @@
 
 <!-- ABOUT THE PROJECT -->
 
-TermCL is an Odin library for writing TUIs and CLIs with.
+TermCL is an Odin library for writing TUIs and CLIs.
 The library is compatible with any ANSI escape code compatible terminal, which is to say, almost every single modern terminal worth using :)
 
 The library should work on windows and any posix compatible operating system.
 
 > [!NOTE]
-> (if it doesn't work on your OS, it's probably missing the terminal mode and size syscalls. PRs are welcomed, otherwise create an issue.)
+> If it doesn't work on your OS, it's probably missing the terminal mode and size syscalls. PRs are welcomed, otherwise create an issue.
 
-> [!NOTE]
+> [!TIP]
 > If you just want a nice and small abstraction for working with ANSI escape codes and nothing else, `termcl/raw` exists. It's a ~300 LOC file that implements the escape codes used by TermCL itself. Feel free to copy it into your own projects.
 
 ## How it works
-The library has a base `termcl` that handles all the basics of interacting with a terminal such as cursors, drawing, setting background and foreground colors, available input. Then there are the "backends" which implement the interface that `termcl` expects. The purpose of the backends is to do the actual work of setting setting up the terminal, getting reading input and printing things to the screen.
+The library has a base `termcl` that handles all the basics of interacting with a terminal such as cursors, drawing, and the possible values for mouse and keyboard input. Then there are the "backends" which implement the interface that `termcl` expects. The purpose of the backends is to do the actual work of setting setting up the terminal, reading input and printing things to the screen.
 
-Currently these backends are available:
+Currently the following backends are available:
 - `term`: outputs ANSI escape codes to the terminal. It is meant for modern terminals. This is probably what you want most of the time.
-- `sdl3`: uses SDL3 to render your TUI to a window. This is good for people that want a TUI like experience but as GUI or just want to be able to reuse the same components from their TUI on top of a GUI. 
+- `sdl3`: uses SDL3 to render your TUI to a window. This is good for people that want a TUI like experience but as GUI or just want to be able to reuse the same components from their TUI on top of a GUI.
 
-You should set your backend before initializing the screen.
+These backends are implemented as a vtable that is passed to termcl itself when you initialize the screen with `termcl.init_screen`. 
+
 ```odin
-termcl.init_screen(term.VTABLE)
+screen := termcl.init_screen(term.VTABLE)
+defer termcl.destroy_screen(&screen)
 ```
 
-> [!NOTE]
-> you should call destroy_screen before you exit to restore the terminal state otherwise you might end up with a weird behaving terminal
+> [!WARNING]
+> you should call `destroy_screen` before you exit to restore the terminal state otherwise you might end up with a weird behaving terminal
 
 After that you should just set the terminal to whatever mode you want with the `set_term_mode` function, there are 3 modes you can use:
 - Raw mode (`.Raw`) - prevents the terminal from processing the user input so that you can handle them yourself
@@ -69,7 +71,6 @@ Here's a few minor things to take into consideration:
 - `Window`s (including `Screen`) cache everything you write to them, you have to `blit` for them to show up on screen.
 
 ## Usage
-Basic TUI:
 ```odin
 package test
 
@@ -81,18 +82,17 @@ main :: proc() {
 	defer t.destroy_screen(&s)
 	t.set_term_mode(&s, .Cbreak)
 
-
 	for {
 		t.clear(&s, .Everything)
 		defer t.blit(&s)
+
+		t.move_cursor(&s, 0, 0)
+		t.write(&s, "Press Q to exit")
 
 		input, input_ok := t.read(&s).(t.Keyboard_Input)
 		if input_ok && input.key == .Q {
 			break
 		}
-
-		t.move_cursor(&s, 0, 0)
-		t.write(&s, "Press Q to exit")
 
 		t.move_cursor(&s, 4, 0)
 		t.set_text_style(&s, {.Bold, .Italic})
@@ -111,7 +111,7 @@ main :: proc() {
 }
 ```
 
-CLI using `termcl/raw`:
+Basic CLI using `termcl/raw`:
 ```odin
 package test
 
@@ -131,17 +131,17 @@ main :: proc() {
 	t.set_text_style(&sb, {.Dim})
 	t.set_bg_color_style(&sb, .Red)
 	t.set_fg_color_style(&sb, .Blue)
-	strings.write_string(&sb, "from ANSI escapes\n")
+	strings.write_string(&sb, "from ANSI escapes")
 	t.reset_styles(&sb)
 
 	strings.write_string(&sb, "\n\n\n\n")
 
 	t.set_fg_color_style(&sb, .Green)
-	strings.write_string(&sb, "    Alles Ordnung\n")
+	strings.write_string(&sb, "    Alles Ordnung")
 	t.reset_styles(&sb)
 
 	fmt.println(strings.to_string(sb))
 }
 ```
 
-Check the `examples` directory to see more on how to use it.
+Check the `examples` directory if you want to see more examples of how to use the library.
