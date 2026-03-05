@@ -2,7 +2,7 @@ package kitty_keyboard
 
 import "../term"
 import "core:fmt"
-import os "core:os/os2"
+import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:terminal/ansi"

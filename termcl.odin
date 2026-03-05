@@ -27,7 +27,12 @@ Backend_VTable :: struct {
 }
 
 @(private)
-backend_vtable: Backend_VTable
+g_backend_vtable: Backend_VTable
+
+// The global screen is only necessary so that the terminal can easily be restored
+// from signal handling callbacks
+@(private)
+g_screen: Screen
 
 /*
 Initializes the terminal screen and creates a backup of the state the terminal
@@ -39,14 +44,16 @@ If the state is not restored your terminal might start misbehaving.
 */
 init_screen :: proc(backend: Backend_VTable, allocator := context.allocator) -> Screen {
 	set_backend(backend)
-	return backend_vtable.init_screen(allocator)
+	_set_signal_handlers()
+	g_screen = g_backend_vtable.init_screen(allocator)
+	return g_screen
 }
 
 /*
 Restores the terminal to its original state and frees all memory allocated by the `t.Screen`
 */
 destroy_screen :: proc(screen: ^Screen) {
-	backend_vtable.destroy_screen(screen)
+	g_backend_vtable.destroy_screen(screen)
 }
 
 /*
@@ -61,11 +68,12 @@ preventing you to have full access to user input.
 - `mode`: how terminal should behave from now on
 */
 set_term_mode :: proc(screen: ^Screen, mode: Term_Mode) {
-	backend_vtable.set_term_mode(screen, mode)
+	screen.mode = mode
+	g_backend_vtable.set_term_mode(screen, mode)
 }
 
 get_term_size :: proc() -> Window_Size {
-	return backend_vtable.get_term_size()
+	return g_backend_vtable.get_term_size()
 }
 
 /*
@@ -76,7 +84,7 @@ Sends instructions to terminal
 
 */
 blit :: proc(win: ^Window) {
-	backend_vtable.blit(win)
+	g_backend_vtable.blit(win)
 
 	// we need to keep the internal buffers in sync with the terminal size
 	// so that we can render things correctly
@@ -95,7 +103,7 @@ blit :: proc(win: ^Window) {
 }
 
 read :: proc(screen: ^Screen) -> Input {
-	return backend_vtable.read(screen)
+	return g_backend_vtable.read(screen)
 }
 
 /*
@@ -104,7 +112,7 @@ The read blocks execution until a value is read.
 If you want it to not block, use `read` instead.
 */
 read_blocking :: proc(screen: ^Screen) -> Input {
-	return backend_vtable.read_blocking(screen)
+	return g_backend_vtable.read_blocking(screen)
 }
 
 /*
@@ -121,7 +129,7 @@ set_backend :: proc(backend: Backend_VTable) {
 	if backend.get_term_size == nil do panic("missing `get_term_size` implementation")
 	if backend.destroy_screen == nil do panic("missing `destroy_screen` implementation")
 	if backend.blit == nil do panic("missing `blit` implementation")
-	backend_vtable = backend
+	g_backend_vtable = backend
 }
 
 Cell :: struct {
@@ -234,7 +242,7 @@ init_window :: proc(
 ) -> Window {
 	h, h_ok := height.?
 	w, w_ok := width.?
-	termsize := backend_vtable.get_term_size()
+	termsize := g_backend_vtable.get_term_size()
 	cell_buffer := cellbuf_init(h if h_ok else termsize.h, w if w_ok else termsize.w, allocator)
 
 	return Window {
@@ -277,7 +285,7 @@ resize_window :: proc(win: ^Window, height, width: Maybe(uint)) {
 	h, h_ok := height.?
 	w, w_ok := width.?
 
-	termsize := backend_vtable.get_term_size()
+	termsize := g_backend_vtable.get_term_size()
 	cellbuf_resize(&win.cell_buffer, h if h_ok else termsize.h, w if w_ok else termsize.w)
 }
 
@@ -306,6 +314,7 @@ Screen :: struct {
 	using winbuf: Window,
 	input_buf:    [512]byte,
 	size:         Window_Size,
+	mode:         Term_Mode,
 }
 
 /*

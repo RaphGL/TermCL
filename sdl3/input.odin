@@ -1,7 +1,7 @@
 package termcl_sdl3
 
 import t ".."
-import os "core:os/os2"
+import "core:os"
 import "vendor:sdl3"
 
 read_raw :: proc(screen: ^t.Screen) -> (input: cstring, ok: bool) {

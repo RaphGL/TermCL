@@ -2,7 +2,7 @@
 package term
 
 import t ".."
-import os "core:os/os2"
+import "core:os"
 import "core:sys/posix"
 
 Terminal_State :: struct {

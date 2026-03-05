@@ -1,7 +1,7 @@
 package term
 
 import t ".."
-import os "core:os/os2"
+import "core:os"
 import "core:strconv"
 import "core:unicode"
 

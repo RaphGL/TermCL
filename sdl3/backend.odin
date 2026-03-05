@@ -59,7 +59,7 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 		panic("failed to initialize virtual terminal")
 	}
 
-	set_font_from_slice(&screen, DEFAULT_FONT_BYTES, 14)
+	set_font_from_bytes(&screen, DEFAULT_FONT_BYTES, 14)
 
 	_ = sdl3.StartTextInput(render_ctx.window)
 
@@ -94,7 +94,7 @@ __init_font_engine :: proc(screen: ^t.Screen, font: ^ttf.Font) -> bool {
 	return true
 }
 
-set_font_from_slice :: proc(screen: ^t.Screen, font: []byte, size: f32) -> bool {
+set_font_from_bytes :: proc(screen: ^t.Screen, font: []byte, size: f32) -> bool {
 	font_stream := sdl3.IOFromConstMem(raw_data(font), len(font))
 	if font_stream == nil do return false
 

@@ -3,7 +3,7 @@ package term
 import t ".."
 import "../raw"
 import "core:fmt"
-import os "core:os/os2"
+import "core:os"
 import "core:strings"
 
 @(private)
@@ -33,9 +33,9 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 }
 
 destroy_screen :: proc(screen: ^t.Screen) {
-	set_term_mode(screen, .Restored)
 	t.destroy_window(&screen.winbuf)
 	t.enable_alt_buffer(false)
+	set_term_mode(screen, .Restored)
 }
 
 set_term_mode :: proc(screen: ^t.Screen, mode: t.Term_Mode) {
