@@ -42,7 +42,7 @@ The library should work on windows and any posix compatible operating system.
 > If you just want a nice and small abstraction for working with ANSI escape codes and nothing else, `termcl/raw` exists. It's a ~300 LOC file that implements the escape codes used by TermCL itself. Feel free to copy it into your own projects.
 
 ## How it works
-The library has a base `termcl` that handles all the basics of interacting with a terminal such as cursors, drawing, and the possible values for mouse and keyboard input. Then there are the "backends" which implement the interface that `termcl` expects. The purpose of the backends is to do the actual work of setting setting up the terminal, reading input and printing things to the screen.
+The library has a base `termcl` that handles all the basics of interacting with a terminal such as cursors, drawing, and the possible values for mouse and keyboard input. Then there are the "backends" which implement the interface that `termcl` expects. The purpose of the backends is to do the actual work of setting up the terminal, reading input and printing things to the screen.
 
 Currently the following backends are available:
 - `term`: outputs ANSI escape codes to the terminal. It is meant for modern terminals. This is probably what you want most of the time.
