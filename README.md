@@ -78,7 +78,7 @@ import t "termcl"
 import term "termcl/term"
 
 main :: proc() {
-	s := t.init_screen(term.VTABLE)
+	s := t.init_screen(tb.VTABLE)
 	defer t.destroy_screen(&s)
 	t.set_term_mode(&s, .Cbreak)
 
