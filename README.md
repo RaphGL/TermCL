@@ -75,7 +75,7 @@ Here's a few minor things to take into consideration:
 package test
 
 import t "termcl"
-import term "termcl/term"
+import tb "termcl/term"
 
 main :: proc() {
 	s := t.init_screen(tb.VTABLE)
