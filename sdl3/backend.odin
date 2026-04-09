@@ -59,7 +59,7 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 		panic("failed to initialize virtual terminal")
 	}
 
-	set_font_from_bytes(&screen, DEFAULT_FONT_BYTES, 14)
+	load_font_from_bytes(&screen, DEFAULT_FONT_BYTES, 14)
 
 	_ = sdl3.StartTextInput(render_ctx.window)
 
@@ -94,7 +94,7 @@ __init_font_engine :: proc(screen: ^t.Screen, font: ^ttf.Font) -> bool {
 	return true
 }
 
-set_font_from_bytes :: proc(screen: ^t.Screen, font: []byte, size: f32) -> bool {
+load_font_from_bytes :: proc(screen: ^t.Screen, font: []byte, size: f32) -> bool {
 	font_stream := sdl3.IOFromConstMem(raw_data(font), len(font))
 	if font_stream == nil do return false
 
@@ -108,13 +108,18 @@ set_font_from_bytes :: proc(screen: ^t.Screen, font: []byte, size: f32) -> bool 
 	return __init_font_engine(screen, font)
 }
 
-set_font :: proc(screen: ^t.Screen, path: string, size: f32) -> bool {
+load_font_from_file :: proc(screen: ^t.Screen, path: string, size: f32) -> bool {
 	path_cstr, path_cstr_err := strings.clone_to_cstring(path)
 	if path_cstr_err != .None do return false
 	defer delete(path_cstr)
 
 	font := ttf.OpenFont(path_cstr, size)
 	return __init_font_engine(screen, font)
+}
+
+load_font :: proc {
+	load_font_from_bytes,
+	load_font_from_file,
 }
 
 destroy_screen :: proc(screen: ^t.Screen) {
