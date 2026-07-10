@@ -34,7 +34,6 @@ init_screen :: proc(allocator := context.allocator) -> t.Screen {
 
 destroy_screen :: proc(screen: ^t.Screen) {
 	t.destroy_window(&screen.winbuf)
-	t.enable_alt_buffer(false)
 	set_term_mode(screen, .Restored)
 }
 
@@ -48,7 +47,7 @@ set_term_mode :: proc(screen: ^t.Screen, mode: t.Term_Mode) {
 
 	case .Raw:
 		t.enable_alt_buffer(true)
-		raw.enable_mouse(true)
+		t.enable_mouse(true)
 	}
 
 	t.hide_cursor(false)
@@ -56,6 +55,7 @@ set_term_mode :: proc(screen: ^t.Screen, mode: t.Term_Mode) {
 	// in stdin potentially causing nonblocking reads to block on the first read, so to avoid this,
 	// stdin is always flushed when the mode is changed
 	os.flush(os.stdin)
+	os.flush(os.stdout)
 }
 
 blit :: proc(win: ^t.Window) {

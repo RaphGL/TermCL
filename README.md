@@ -1,3 +1,7 @@
+> [!WARNING]
+> This project is no longer maintained as I have moved on from using Odin and I no longer have a purpose for this library.
+> Feel free to fork and maintain the library if you so wish.
+
 <!-- PROJECT LOGO -->
 <br />
 <p align="center">
